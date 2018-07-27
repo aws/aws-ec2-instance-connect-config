@@ -1,0 +1,4 @@
+#Timestamp=2000000000
+#Instance=i-abcd1234
+#Caller=arn:aws:iam::123412341234:role/myrole
+#Request=1234abcd-1234-abcd-1234abcd1234

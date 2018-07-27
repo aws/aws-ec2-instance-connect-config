@@ -1,0 +1,267 @@
+#!/bin/sh
+
+# EC2 Instance Connect AuthorizedKeysCommand v 1.1.0
+
+# Reads authorized keys blob $3 and prints verified, unexpired keys
+# Openssl to use provided as $1
+# Signer public key file path provided as $2
+
+# Helper to determine if a string starts with a given prefix
+# Format: startswith [string] [prefix]
+startswith () {
+    [ "${1#${2}}x" != "${1}x" ]
+}
+
+# Helper function to strip out a prefix from a string
+# Format: removeprefix [string] [prefix]
+removeprefix () {
+    printf '%s' "${1#${2}}"
+}
+
+# Helper to verify an arbitrary ocsp response body given the certificate and issuer
+# Format: verifyocsp [is_debug] [openssl command] [certificate] [issuer] [ocsp directory]
+verifyocsp() {
+    fingerprint=$($2 x509 -noout -fingerprint -sha1 -inform pem -in $3 | sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p') 2>/dev/null
+    ocsp_out=$($2 ocsp -no_nonce -issuer $4 -cert $3 -VAfile $4 -respin $5/$fingerprint) 2>/dev/null
+    if [ $? -ne 0 ] || ! startswith "${ocsp_out}" "${3}: good" ; then
+        if [ "$1" = true ] ; then
+            echo "CERTIFICATE ${fingerprint} FAILED OCSP CHECK"
+        else
+            logger -i -p authpriv.info "EC2 Instance Connect could not verify certificate ${fingerprint} has not been revoked. No keys have been trusted."
+        fi
+        exit 1
+    fi
+}
+
+while getopts ":x:r:o:d:s:i:c:a:v:f:" o; do
+    case "${o}" in
+        x)
+            is_debug="${OPTARG}"
+            ;;
+        r)
+            read_command="${OPTARG}"
+            ;;
+        o)
+            OPENSSL="${OPTARG}"
+            ;;
+        d)
+            tmpdir="${OPTARG}"
+            ;;
+        s)
+            signer="${OPTARG}"
+            ;;
+        i)
+            current_instance_id="${OPTARG}"
+            ;;
+        c)
+            expected_cn="${OPTARG}"
+            ;;
+        a)
+            ca_path="${OPTARG}"
+            ;;
+        v)
+            ocsp_dir_path="${OPTARG}"
+            ;;
+        f)
+            expected_key="${OPTARG}"
+            ;;
+        *)
+            echo "Usage: $0 [-x debug] [-r key read command] [-o openssl command] [-d tmpdir] [-s signer certificate] [-i instance id] [-c cname] [-a ca path] [-v ocsp dir] [-f key fingerprint]"
+            exit 1
+            ;;
+    esac
+done
+
+# Verify we have sufficient inputs
+if [ $# -lt 1 ] ; then
+    # No args whatsoever
+    # Unit test log (ignored by sshd)
+    echo "Usage: $0 [-x debug] [-r key read command] [-o openssl command] [-d tmpdir] [-s signer certificate] [-i instance id] [-c cname] [-a ca path] [-v ocsp dir] [-f key fingerprint]"
+    # System log
+    logger -i -p authpriv.info "Unable to run EC2 Instance Connect: insufficient args provided.  Please check your sshd configuration."
+    exit 1
+fi
+
+# Verify the signer certificate we have been provided - CN, trust chain, and revocation status
+
+# Split the chain into pieces and simultaneously build the intermediate trust chain
+echo "${signer}" | awk -v dir="${tmpdir}" 'split_after==1{n++;split_after=0} /-----END CERTIFICATE-----/ {split_after=1} {print > dir "/cert" n ".pem"}'
+cat "${ca_path}" $(find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem$") > $tmpdir/ca-trust.pem
+
+# Verify the CN
+signer_cn=$($OPENSSL x509 -noout -subject -in $tmpdir/cert.pem | sed -n -e 's/^.*CN=//p')
+if [ "${signer_cn}" != "${expected_cn}" ] ; then
+    if [ "${is_debug}" = true ] ; then
+        echo "SIGNER CERTIFICATE NOT RECOGNIZED"
+    else
+        logger -i -p authpriv.info "EC2 Instance Connect encountered an unrecognized signer certificate. No keys have been trusted."
+    fi
+    exit 1
+fi
+
+# Verify the trust chain
+verify_out=$($OPENSSL verify -x509_strict -CApath /dev/null -CAfile $tmpdir/ca-trust.pem $tmpdir/cert.pem)
+if [ $? -ne 0 ] || [ "${verify_out}" != "${tmpdir}/cert.pem: OK" ] ; then
+    if [ "${is_debug}" = true ] ; then
+        echo "SIGNER CERTIFICATE NOT TRUSTED"
+    else
+        logger -i -p authpriv.info "EC2 Instance Connect could not verify the signer trust chain. No keys have been trusted."
+    fi
+    exit 1
+fi
+
+# Verify no certificates have been revoked
+# Iterate from first to second-to-last cert & validate OCSP staples
+mv $tmpdir/cert.pem $tmpdir/cert0.pem # Better naming consistency for loop
+end=$(find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem" | wc -l)
+end=$(( $end - 1))
+for i in `seq 0 $(( $end - 1 ))` ; do
+    verifyocsp $is_debug $OPENSSL "${tmpdir}/cert${i}.pem" "${tmpdir}/cert$(( $i + 1)).pem" "${ocsp_dir_path}"
+done
+# We still need to verify the last certificate's OCSP staple with the CA as the issuer
+verifyocsp $is_debug $OPENSSL "${tmpdir}/cert${end}.pem" "${ca_path}" "${ocsp_dir_path}"
+
+# Extract cert public key
+echo "${signer}" | $OPENSSL x509 -pubkey -noout > "${tmpdir}/pubkey" 2>/dev/null
+if [ $? -ne 0 ] ; then # $? must be numeric 0-255 and requires no quote escaping
+    if [ "${is_debug}" = true ] ; then
+        echo "FAILED TO GET SIGNER PUBLIC KEY"
+    else
+        logger -i -p authpriv.info "EC2 Instance Connect failed to extract the public key from the signer certificate. No keys have been trusted."
+    fi
+    exit 1
+fi
+
+
+# Begin actual parsing of authorized keys data
+
+if [ ! -z ${expected_key+x} ] ; then
+    # An expected fingerprint was given
+    if [ "${is_debug}" = false ] ; then
+        logger -i -p authpriv.info "Querying EC2 Instance Connect keys for matching fingerprint: ${expected_key}"
+    fi
+fi
+
+# Set current time as expiration marker
+curtime=$(/bin/date +%s)
+
+# We want to prevent variables from leaving the parser's scope
+# We also want to capture overall exit code
+# We also need to redirect the input into our loop
+# The simplest solution to all of the above is to take advantage of how sh pipes spawn a subprocess
+output=$(eval "${read_command}" | (
+    exitcode=255 # Exit code if no valid keys are provided
+    count=0
+
+    # Read loop - pull timestamp line at start of iteration
+    while read -r line
+    do
+        pathprefix="${tmpdir}/${count}"
+
+        # Clear our temp buffers to prevent any sort of injection
+        rm -f "${pathprefix}-key"
+        rm -f "${pathprefix}-signedData"
+        rm -f "${pathprefix}-sig"
+        rm -f "${pathprefix}-decoded"
+
+        # Pre-initialize key validation fields
+        timestamp=0
+        instance_id=""
+        caller=""
+        request=""
+        # We do not pre-initialize the actual key or signature fields
+
+        # Loop to read keys & parse out values
+        # This is not sub-shelled as we want to maintain variable scope with the outer loop
+        # Loop condition is until we reach a line that lacks the "#Key" format
+        while startswith "${line}" "#"
+        do
+            # Note that not all of these may be present depending on service deployments
+            # Similarly, this list is not meant to be exhaustive - there may be new fields to be checked in a later version
+            if startswith "${line}" "#Timestamp=" ; then
+                timestamp=$(removeprefix $line "#Timestamp=")
+            elif startswith "${line}" "#Instance=" ; then
+                instance_id=$(removeprefix $line "#Instance=")
+            elif startswith "${line}" "#Caller=" ; then
+                caller=$(removeprefix $line "#Caller=")
+            elif startswith "${line}" "#Request=" ; then
+                request=$(removeprefix $line "#Request=")
+            # Otherwise it's a #Key we don't recognize (i.e., this version of AuthorizedKeysCommand is outdated)
+            fi
+
+            # We verify on all fields in-order, whether we recognize them or not.  Similarly, we don't force fields not present.
+            # As such we always add this to the signature verification file
+            printf '%s\n' "${line}" >> "${pathprefix}-signedData"
+
+            # Read the next line
+            read -r line
+        done
+
+        # At this point, line should contain the key
+        if startswith "${line}" "ssh" ; then
+            key="${line}"
+            printf '%s\n' "${key}" >> "${pathprefix}-signedData"
+
+            # Read key signature - may be multi-line
+            encodedsigfile="${pathprefix}-sig"
+            read -r sigline
+            while [ "${sigline}" != "" ]
+            do
+                printf '%s\n' "${sigline}" >> "${encodedsigfile}"
+                read -r sigline
+            done
+
+            # Begin validation
+            printf '%s\n' "${key}" > "${pathprefix}-key"
+            fingerprint=$(ssh-keygen -lf "${pathprefix}-key" | cut -d ' ' -f 2) # Get only the actual fingerprint, ignore key size & source
+            expiration=$(expr "${timestamp}")
+            # If we were told to expect a specific key and this isn't it, skip it
+            if [ -z "${expected_key}" ] || [ "$fingerprint" = "${expected_key}" ] ; then
+                # Check instance ID matches & timestamp is still valid
+                if [ "${current_instance_id}" = "${instance_id}" ] && [ $expiration -gt $curtime ] ; then
+                    # Decode the signature
+                    base64 --decode "${encodedsigfile}" > "${pathprefix}-decoded" 2>/dev/null
+                    # Verify signature
+                    $OPENSSL dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -verify "${tmpdir}/pubkey" -signature "${pathprefix}-decoded" "${pathprefix}-signedData" 1>/dev/null 2>/dev/null
+                    if [ $? -eq 0 ] ; then
+                        # Signature verified.
+                        # Record this in syslog
+                        callermessage="Providing ssh key from EC2 Instance Connect with fingerprint: ${fingerprint}"
+                        if [ "${request}" != "" ] ; then
+                            callermessage="${callermessage}, request-id: ${request}"
+                        fi
+                        if [ "${caller}" != "" ] ; then
+                            callermessage="${callermessage}, for IAM principal: ${caller}"
+                        fi
+                        logger -i -p authpriv.info "${callermessage}"
+                        # Return key to the ssh daemon
+                        echo "${key}"
+                        exitcode=0
+                    fi
+                fi
+            fi
+        else
+            # We didn't find a key.  Skip until we hit a blank line or EOF
+            while [ "$line" != "" ]
+            do
+                read -r line
+            done
+        fi
+
+        # Clean up any tempfiles
+        rm -f "${pathprefix}-key"
+        rm -f "${pathprefix}-signedData"
+        rm -f "${pathprefix}-sig"
+        rm -f "${pathprefix}-decoded"
+
+        count=$(expr "${count}" + 1)
+    done
+    # This is the loop subprocess's exit code, not the script's
+    exit $exitcode
+))
+# Re-capture the exit code
+exitcode=$?
+# Print keys & exit
+rm -rf "${tmpdir}/pubkey"
+echo "${output}"
+exit $exitcode

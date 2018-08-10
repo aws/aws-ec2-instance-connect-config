@@ -22,7 +22,7 @@ if [ -z "${4}" ] ; then
     exit 4
 fi
 
-tmpfile=$(mktemp /tmp/tmp-XXXXXXXX)
+tmpfile=$(mktemp /dev/shm/tmp-XXXXXXXX)
 
 # Generate the OCSP request
 

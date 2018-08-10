@@ -76,6 +76,9 @@ sed -i "s|REPLACE_WITH_CERTPATH|${certpath}|" $certpath/ca.conf
 $OPENSSL genrsa -out $certpath/ca.key 2048 > /dev/null 2>&1
 $OPENSSL req -x509 -new -nodes -key $certpath/ca.key -sha256 -days 1 -out $certpath/ca.crt -subj "/CN=managedssh.amazonaws.com" > /dev/null 2>&1
 $OPENSSL x509 -in $certpath/ca.crt -outform PEM -out $certpath/ca.pem
+subject=$($OPENSSL x509 -noout -subject -in $certpath/ca.pem | sed -n -e 's/^.*CN=//p')
+# Add "# subject" to start
+sed -i '1s;^;# '"$subject"'\n;' $certpath/ca.crt
 
 # Configure the intermediary
 mkdir -p $certpath/intermediate.db.certs

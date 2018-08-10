@@ -27,7 +27,7 @@ private_key="${2}"
 input_dir="${3}"
 target="${4}"
 
-signing_temp=$(mktemp -d /tmp/tmp-XXXXXXXX)
+signing_temp=$(mktemp -d /dev/shm/tmp-XXXXXXXX)
 trap 'rm -rf "${signing_temp}"' EXIT
 
 for file in "${input_dir}"/* ; do

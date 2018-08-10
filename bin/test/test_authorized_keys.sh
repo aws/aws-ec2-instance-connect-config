@@ -49,7 +49,7 @@ if [ -z "${expected_output}" ] ; then
     expected_exit=255
 fi
 
-testdir=$(mktemp -d /tmp/tmp-XXXXXXXX)
+testdir=$(mktemp -d /dev/shm/tmp-XXXXXXXX)
 
 # The key fingerprint is for a pre-generated ssh key used in several test inputs
 # Some test inputs contain other keys as well

@@ -10,14 +10,15 @@ AUTH_KEYS_USER="#AuthorizedKeysCommandUser nobody"
 if grep -q "^AuthorizedKeysCommandUser[[:blank:]]ec2-instance-connect$" /etc/ssh/sshd_config ; then
     if grep -q "^AuthorizedKeysCommand[[:blank:]]/usr/bin/timeout[[:blank:]]5s[[:blank:]]/opt/aws/bin/curl_authorized_keys[[:blank:]]%u[[:blank:]]%f$" /etc/ssh/sshd_config ; then
         sed -ir "/^AuthorizedKeysCommand[[:blank:]]\/usr\/bin\/timeout[[:blank:]]5s[[:blank:]]\/opt\/aws\/bin\/curl_authorized_keys.*$/d" /etc/ssh/sshd_config
-        sed -i "/^.*AuthorizedKeysCommandUser.*$/d" /etc/ssh/sshd_config
+        sed -i "/^.*AuthorizedKeysCommandUser[[:blank:]]ec2-instance-connect$/d" /etc/ssh/sshd_config
+        printf "\n%s\n%s\n" "#AuthorizedKeysCommand none" "#AuthorizedKeysCommandUser nobody" >> /etc/ssh/sshd_config
         modified=true
     fi
 fi
 
 if [ $modified = true ] ; then
     # Restart sshd
-    # HACK: There is absolutely no good way to tell what init system is running.
+    # HACK: There is no good way to tell what init system is running.
     # "Best" solution is to just try them all
     sudo systemctl restart ssh || true
     sudo service sshd restart || true

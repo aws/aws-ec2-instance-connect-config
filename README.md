@@ -2,6 +2,8 @@
 
 This package contains the EC2 instance configuration and scripts necessary to enable AWS EC2 Instance Connect.
 
+This package does *not* include the build configuration or packaging for EC2's package repositories - such packaging is handled by the Amazon Linux maintainers.
+
 ## AuthorizedKeysCommand
 
 The AuthorizedKeysCommand is split into two parts, both under src/opt/aws/bin/

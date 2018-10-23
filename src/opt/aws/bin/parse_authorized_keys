@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright 2012-2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -13,7 +13,7 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-# EC2 Instance Connect AuthorizedKeysCommand v 1.0.0
+# EC2 Instance Connect AuthorizedKeysCommand v 1.0.1
 
 # Reads authorized keys blob $3 and prints verified, unexpired keys
 # Openssl to use provided as $1
@@ -47,7 +47,7 @@ removeprefix () {
 verifyocsp() {
     # First check if this cert is already trusted
     cname=$($2 x509 -noout -subject -in $3 2>/dev/null | /bin/sed -n -e 's/^.*CN=//p')
-    fingerprint=$($2 x509 -noout -fingerprint -sha1 -inform pem -in $3  2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')
+    fingerprint=$($2 x509 -noout -fingerprint -sha1 -inform pem -in $3  2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint[[:space:]]*=[[:space:]]*\(.*\)/\1/p' | tr -d ':')
     ocsp_out=$($2 ocsp -no_nonce -issuer $4 -cert $3 -VAfile $4 -respin $5/$fingerprint 2>/dev/null)
     if [ $? -ne 0 ] || ! startswith "${ocsp_out}" "${3}: good" ; then
         fail $1 "EC2 Instance Connect could not verify certificate ${cname} has not been revoked. No keys have been trusted."
@@ -109,34 +109,61 @@ fi
 echo "${signer}" | /usr/bin/awk -v dir="${tmpdir}" 'split_after==1{n++;split_after=0} /-----END CERTIFICATE-----/ {split_after=1} {print > dir "/cert" n ".pem"}'
 
 # We want visibility into the CA bundle so we can skip verifying entries in the chain that are already trusted
+if [ -d "${ca_path}" ] ; then
+    ca_path_dir=$ca_path
+else
+    ca_path_dir=$(dirname "${ca_path}")
+fi
 ca_bundles_dir=$(/bin/mktemp -d $tmpdir/tmp-XXXXXXXX)
 /bin/chmod 700 $ca_bundles_dir
 end=$(/usr/bin/find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem" | wc -l)
 if [ $(/usr/bin/expr $end) -gt 0 ] ; then
+    # First see if we already have them
+    exist=true
     for i in `/usr/bin/seq 1 $end` ; do
-        subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert$i.pem" | /bin/sed -n -e 's/^.*CN=//p')
-        # Try to pull this CN from the CA bundle
-        /bin/sed -n -e '/#[[:space:]]'"$subject"'$/,$p' "${ca_path}" | /bin/sed '/-----END[[:space:]]CERTIFICATE-----.*/,$d' | /bin/sed -n '1!p' > "${ca_bundles_dir}/${subject}"
-        if [ -s "${ca_bundles_dir}/${subject}" ] ; then
-            /bin/echo "-----END CERTIFICATE-----" >> "${ca_bundles_dir}/${subject}"
+        subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert$i.pem" | /bin/sed -n -e 's/^.*CN[[:space:]]*=[[:space:]]*//p')
+        underscored=$(/bin/echo "${subject// /_}") 2>/dev/null
+        if [ -f "${ca_path_dir}/${underscored}.pem" ] ; then
+            # We already have it
+            /bin/cp "${ca_path_dir}/${subject}.pem" "${ca_bundles_dir}/${subject}"
         else
-            /bin/rm -f "${ca_bundles_dir}/${subject}"
+            if [ ! -d "${ca_path}" ] ; then
+                # Try to pull this CN from the CA bundle
+                /bin/sed -n -e '/#[[:space:]]'"$subject"'$/,$p' "${ca_path}" 2>/dev/null | /bin/sed '/-----END[[:space:]]CERTIFICATE-----.*/,$d' | /bin/sed -n '1!p' > "${ca_bundles_dir}/${subject}"
+                if [ -s "${ca_bundles_dir}/${subject}" ] ; then
+                    /bin/echo "-----END CERTIFICATE-----" >> "${ca_bundles_dir}/${subject}"
+                else
+                    /bin/rm -f "${ca_bundles_dir}/${subject}"
+                fi
+            fi
         fi
     done
 fi
 
 # Build the intermediate trust chain
-cat $(/usr/bin/find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem$") "${ca_path}" > $tmpdir/ca-trust.pem
+cat $(/usr/bin/find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem$") > $tmpdir/ca-trust.pem
+if [ -d "${ca_path}" ] ; then
+    subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert$end.pem" | /bin/sed -n -e 's/^.*CN[[:space:]]*=[[:space:]]*//p')
+    underscored=$(/bin/echo "${subject// /_}")
+    cat "${ca_bundles_dir}/${underscored}" >> $tmpdir/ca-trust.pem
+else
+    cat "${ca_path}" >> $tmpdir/ca-trust.pem
+fi
 /bin/chmod 400 "${tmpdir}/ca-trust.pem"
 
 # Verify the CN
-signer_cn=$($OPENSSL x509 -noout -subject -in $tmpdir/cert.pem | /bin/sed -n -e 's/^.*CN=//p')
+signer_cn=$($OPENSSL x509 -noout -subject -in $tmpdir/cert.pem | /bin/sed -n -e 's/^.*CN[[:space:]]*=[[:space:]]*//p')
 if [ "${signer_cn}" != "${expected_cn}" ] ; then
     fail $is_debug "EC2 Instance Connect encountered an unrecognized signer certificate. No keys have been trusted."
 fi
 
 # Verify the trust chain
-verify_out=$($OPENSSL verify -x509_strict -CApath /dev/null -CAfile $tmpdir/ca-trust.pem $tmpdir/cert.pem)
+if [ -d "${ca_path}" ] ; then
+    ca_path_option="${ca_path}"
+else
+    ca_path_option="/dev/null"
+fi
+verify_out=$($OPENSSL verify -x509_strict -CApath ${ca_path_option} -CAfile $tmpdir/ca-trust.pem $tmpdir/cert.pem)
 if [ $? -ne 0 ] || [ "${verify_out}" != "${tmpdir}/cert.pem: OK" ] ; then
     fail $is_debug "EC2 Instance Connect could not verify the signer trust chain. No keys have been trusted."
 fi
@@ -145,13 +172,13 @@ fi
 # Iterate from first to second-to-last cert & validate OCSP staples
 /bin/mv $tmpdir/cert.pem $tmpdir/cert0.pem # Better naming consistency for loop
 for i in `/usr/bin/seq 0 $(( $end - 1 ))` ; do
-    subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert${i}.pem" | /bin/sed -n -e 's/^.*CN=//p')
+    subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert${i}.pem" | /bin/sed -n -e 's/^.*CN[[:space:]]*=[[:space:]]*//p')
     if [ -f "${ca_bundles_dir}/${subject}" ] ; then
         # If we encounter a certificate that's in the CA bundle we can skip the rest as implicitly trusted
         hash=$($OPENSSL x509 -hash -noout -in "${tmpdir}/cert${i}.pem" 2>/dev/null)
         trusted_hash=$($OPENSSL x509 -hash -noout -in "${ca_bundles_dir}/${subject}" 2>/dev/null)
-        fingerprint=$($OPENSSL x509 -noout -fingerprint -sha1 -in "${tmpdir}/cert${i}.pem" 2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')
-        trusted_fingerprint=$($OPENSSL x509 -noout -fingerprint -sha1 -in "${ca_bundles_dir}/${subject}" 2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')
+        fingerprint=$($OPENSSL x509 -noout -fingerprint -sha1 -in "${tmpdir}/cert${i}.pem" 2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint[[:space:]]*=[[:space:]]*\(.*\)/\1/p' | tr -d ':')
+        trusted_fingerprint=$($OPENSSL x509 -noout -fingerprint -sha1 -in "${ca_bundles_dir}/${subject}" 2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint[[:space:]]*=[[:space:]]*\(.*\)/\1/p' | tr -d ':')
         pkey=$($OPENSSL x509 -pubkey -noout -in "${tmpdir}/cert${i}.pem")
         trusted_pkey=$($OPENSSL x509 -pubkey -noout -in "${ca_bundles_dir}/${subject}" )
         if [ "${hash}" = "${trusted_hash}" ] && [ "${fingerprint}" = "${trusted_fingerprint}" ] && [ "${pkey}" = "${trusted_pkey}" ] ; then

@@ -18,12 +18,15 @@
 # Reads and echoes EC2 Metadata to get the authorized keys blob for the user $1
 
 if [ -z "${1}" ] ; then
+    # No user provided, not really anything to query for.  Fail out.
+    /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked without a user to authorize and will do nothing."
     exit 1
 fi
 
 /usr/bin/id -u "${1}" > /dev/null 2>&1
 if [ $? -ne 0 ] ; then
-    exit 1
+    # User doesn't actually exist.  Let sshd deal with it.
+    exit 0
 fi
 
 userpath=$(/bin/mktemp -d /dev/shm/tmp-XXXXXXXX)
@@ -35,10 +38,11 @@ keysfile=allowed-keys
 OPENSSL=/usr/bin/openssl
 curl_cmd="/usr/bin/curl -s -f -m 1"
 
-# Verify that we have active keys.  Fast-fail if we do not.
+# Verify that we have active keys.  Fast-exit if we do not.
 if [ $(eval "${curl_cmd} -o /dev/null -I -w %{http_code} http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/") -eq 404 ]
 then
-    exit 255
+    # No keys for this user.   Nothing to do.
+    exit 0
 fi
 
 # Read the current signer cert
@@ -91,11 +95,12 @@ expected_signer=$(/usr/bin/printf 'managed-ssh-signer.%s.%s' "${region}" "${doma
 # Invoke key parser (will automagically echo the results)
 curl_command="${curl_cmd} http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/"
 DIR="$( cd "$( dirname "${0}" )" && pwd )"
+ca_path=/etc/ssl/certs
 if [ -z "${2}" ] ; then
-    output=$($DIR/parse_authorized_keys -x false -r "${curl_command}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "/etc/ssl/certs/ca-bundle.crt" -v "${ocsp_path}")
+    output=$($DIR/parse_authorized_keys -x false -r "${curl_command}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "${ca_path}" -v "${ocsp_path}")
     exitcode=$? # not quote-escaped since this must be numeric 0-255
 else
-    output=$($DIR/parse_authorized_keys -x false -r "${curl_command}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "/etc/ssl/certs/ca-bundle.crt" -v "${ocsp_path}" -f "${2}")
+    output=$($DIR/parse_authorized_keys -x false -r "${curl_command}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "${ca_path}" -v "${ocsp_path}" -f "${2}")
     exitcode=$? # not quote-escaped since this must be numeric 0-255
 fi
 

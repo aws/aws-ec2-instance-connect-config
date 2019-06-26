@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -e
+
+#DEBHELPER#
+
+case "$1" in
+    install)
+        # Create/configure system user
+        # /usr/bin/getent passwd ec2-instance-connect || /usr/sbin/useradd -r -M -s /sbin/nologin ec2-instance-connect
+        getent passwd ec2-instance-connect || adduser --system --disabled-login --shell /usr/sbin/nologin --no-create-home --home /nonexistent --quiet ec2-instance-connect
+        echo "Created system user ec2-instance-connect"
+    ;;
+esac

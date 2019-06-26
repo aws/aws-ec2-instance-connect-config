@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -13,11 +13,11 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-# EC2 Instance Connect AuthorizedKeysCommand v 1.0.1
-
 # Reads authorized keys blob $3 and prints verified, unexpired keys
 # Openssl to use provided as $1
 # Signer public key file path provided as $2
+
+set -e
 
 # Failure reporting & exit
 # Format: fail [is_debug] [message]
@@ -106,7 +106,7 @@ fi
 # Verify the signer certificate we have been provided - CN, trust chain, and revocation status
 
 # Split the chain into pieces
-echo "${signer}" | /usr/bin/awk -v dir="${tmpdir}" 'split_after==1{n++;split_after=0} /-----END CERTIFICATE-----/ {split_after=1} {print > dir "/cert" n ".pem"}'
+/bin/echo "${signer}" | /usr/bin/awk -v dir="${tmpdir}" 'split_after==1{n++;split_after=0} /-----END CERTIFICATE-----/ {split_after=1} {print > dir "/cert" n ".pem"}'
 
 # We want visibility into the CA bundle so we can skip verifying entries in the chain that are already trusted
 if [ -d "${ca_path}" ] ; then
@@ -114,18 +114,17 @@ if [ -d "${ca_path}" ] ; then
 else
     ca_path_dir=$(dirname "${ca_path}")
 fi
-ca_bundles_dir=$(/bin/mktemp -d $tmpdir/tmp-XXXXXXXX)
+ca_bundles_dir=$(/bin/mktemp -d $tmpdir/eic-cert-XXXXXXXX)
 /bin/chmod 700 $ca_bundles_dir
 end=$(/usr/bin/find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem" | wc -l)
 if [ $(/usr/bin/expr $end) -gt 0 ] ; then
     # First see if we already have them
-    exist=true
     for i in `/usr/bin/seq 1 $end` ; do
         subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert$i.pem" | /bin/sed -n -e 's/^.*CN[[:space:]]*=[[:space:]]*//p')
-        underscored=$(/bin/echo "${subject// /_}") 2>/dev/null
+        underscored=$(/bin/echo "${subject}" | /usr/bin/tr -s ' ' '_') 2>/dev/null
         if [ -f "${ca_path_dir}/${underscored}.pem" ] ; then
             # We already have it
-            /bin/cp "${ca_path_dir}/${subject}.pem" "${ca_bundles_dir}/${subject}"
+            /bin/cp "${ca_path_dir}/${underscored}.pem" "${ca_bundles_dir}/${underscored}"
         else
             if [ ! -d "${ca_path}" ] ; then
                 # Try to pull this CN from the CA bundle
@@ -141,13 +140,13 @@ if [ $(/usr/bin/expr $end) -gt 0 ] ; then
 fi
 
 # Build the intermediate trust chain
-cat $(/usr/bin/find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem$") > $tmpdir/ca-trust.pem
+/bin/cat $(/usr/bin/find $tmpdir -maxdepth 1 -type f -name "cert*.pem" -regextype sed -regex ".*/cert[0-9]\+\.pem$") > $tmpdir/ca-trust.pem 2>/dev/null
 if [ -d "${ca_path}" ] ; then
     subject=$($OPENSSL x509 -noout -subject -in "${tmpdir}/cert$end.pem" | /bin/sed -n -e 's/^.*CN[[:space:]]*=[[:space:]]*//p')
-    underscored=$(/bin/echo "${subject// /_}")
-    cat "${ca_bundles_dir}/${underscored}" >> $tmpdir/ca-trust.pem
+    underscored=$(/bin/echo "${subject}" | /usr/bin/tr -s ' ' '_') 2>/dev/null
+    /bin/cat "${ca_bundles_dir}/${underscored}" >> $tmpdir/ca-trust.pem 2>/dev/null
 else
-    cat "${ca_path}" >> $tmpdir/ca-trust.pem
+    /bin/cat "${ca_path}" >> $tmpdir/ca-trust.pem 2>/dev/null
 fi
 /bin/chmod 400 "${tmpdir}/ca-trust.pem"
 
@@ -160,11 +159,14 @@ fi
 # Verify the trust chain
 if [ -d "${ca_path}" ] ; then
     ca_path_option="${ca_path}"
+    verify_out=$($OPENSSL verify -x509_strict -CApath ${ca_path} -CAfile $tmpdir/ca-trust.pem $tmpdir/cert.pem)
+    verify_status=$?
 else
-    ca_path_option="/dev/null"
+    # If the CA path is not a directory then do not use it - openssl will throw errors on versions 1.1.1+
+    verify_out=$($OPENSSL verify -x509_strict -CAfile $tmpdir/ca-trust.pem $tmpdir/cert.pem)
+    verify_status=$?
 fi
-verify_out=$($OPENSSL verify -x509_strict -CApath ${ca_path_option} -CAfile $tmpdir/ca-trust.pem $tmpdir/cert.pem)
-if [ $? -ne 0 ] || [ "${verify_out}" != "${tmpdir}/cert.pem: OK" ] ; then
+if [ $verify_status -ne 0 ] || [ "${verify_out}" != "${tmpdir}/cert.pem: OK" ] ; then
     fail $is_debug "EC2 Instance Connect could not verify the signer trust chain. No keys have been trusted."
 fi
 
@@ -277,42 +279,48 @@ output=$(eval "${read_command}" | (
             encodedsigfile="${pathprefix}-sig"
             /bin/touch "${encodedsigfile}"
             /bin/chmod 600 "${encodedsigfile}"
-            read -r sigline
+            read -r sigline || sigline=""
+            echo -n $sigline > /tmp/sigline
             while [ "${sigline}" != "" ]
             do
                 /usr/bin/printf '%s\n' "${sigline}" >> "${encodedsigfile}"
-                read -r sigline
+                read -r sigline || sigline=""
             done
             /bin/chmod 400 "${encodedsigfile}"
 
-            # Begin validation
             /usr/bin/printf '%s\n' "${key}" > "${pathprefix}-key"
-            fingerprint=$(/usr/bin/ssh-keygen -lf "${pathprefix}-key" | cut -d ' ' -f 2) # Get only the actual fingerprint, ignore key size & source
-            expiration=$(/usr/bin/expr "${timestamp}")
-            # If we were told to expect a specific key and this isn't it, skip it
-            if [ -z "${expected_key}" ] || [ "$fingerprint" = "${expected_key}" ] ; then
-                # Check instance ID matches & timestamp is still valid
-                if [ "${current_instance_id}" = "${instance_id}" ] && [ $expiration -gt $curtime ] ; then
-                    # Decode the signature
-                    /usr/bin/base64 --decode "${encodedsigfile}" > "${pathprefix}-decoded" 2>/dev/null
-                    # Verify signature
-                    $OPENSSL dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -verify "${tmpdir}/pubkey" -signature "${pathprefix}-decoded" "${pathprefix}-signedData" 1>/dev/null 2>/dev/null
-                    if [ $? -eq 0 ] ; then
-                        # Signature verified.
-                        # Record this in syslog
-                        callermessage="Providing ssh key from EC2 Instance Connect with fingerprint: ${fingerprint}"
-                        if [ "${request}" != "" ] ; then
-                            callermessage="${callermessage}, request-id: ${request}"
+
+            # Begin validation
+            if [ ! -z "${instance_id}" ] && [ $timestamp -ne 0 ] ; then
+                fingerprint=$(/usr/bin/ssh-keygen -lf "${pathprefix}-key" | cut -d ' ' -f 2) # Get only the actual fingerprint, ignore key size & source
+                expiration=$(/usr/bin/expr "${timestamp}")
+                # If we were told to expect a specific key and this isn't it, skip it
+                if [ -z "${expected_key}" ] || [ "$fingerprint" = "${expected_key}" ] ; then
+                    # Check instance ID matches & timestamp is still valid
+                    if [ "${current_instance_id}" = "${instance_id}" ] && [ $expiration -gt $curtime ] ; then
+                        # Decode the signature
+                        (/usr/bin/base64 --decode "${encodedsigfile}" > "${pathprefix}-decoded" || rm -f "${pathprefix}-decoded") 2>/dev/null
+                        if [ -f "${pathprefix}-decoded" ] ; then
+                            # Verify signature
+                            $OPENSSL dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -verify "${tmpdir}/pubkey" -signature "${pathprefix}-decoded" "${pathprefix}-signedData" 1>/dev/null 2>/dev/null
+                            if [ $? -eq 0 ] ; then
+                                # Signature verified.
+                                # Record this in syslog
+                                callermessage="Providing ssh key from EC2 Instance Connect with fingerprint: ${fingerprint}"
+                                if [ "${request}" != "" ] ; then
+                                    callermessage="${callermessage}, request-id: ${request}"
+                                fi
+                                if [ "${caller}" != "" ] ; then
+                                    callermessage="${callermessage}, for IAM principal: ${caller}"
+                                fi
+                                if [ "$is_debug" = false ] ; then
+                                    /usr/bin/logger -i -p authpriv.info "${callermessage}"
+                                fi
+                                # Return key to the ssh daemon
+                                /bin/echo "${key}"
+                                exitcode=0
+                            fi
                         fi
-                        if [ "${caller}" != "" ] ; then
-                            callermessage="${callermessage}, for IAM principal: ${caller}"
-                        fi
-                        if [ "$is_debug" = false ] ; then
-                            /usr/bin/logger -i -p authpriv.info "${callermessage}"
-                        fi
-                        # Return key to the ssh daemon
-                        /bin/echo "${key}"
-                        exitcode=0
                     fi
                 fi
             fi
@@ -320,7 +328,7 @@ output=$(eval "${read_command}" | (
             # We didn't find a key.  Skip until we hit a blank line or EOF
             while [ "$line" != "" ]
             do
-                read -r line
+                read -r line || line=""
             done
         fi
 

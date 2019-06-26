@@ -1,0 +1,2 @@
+ec2-instance-connect/* usr/share/ec2-instance-connect/
+ec2-instance-connect.service lib/systemd/system/

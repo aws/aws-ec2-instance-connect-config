@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -12,6 +12,10 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
+
+# Reads authorized keys blob $3 and prints verified, unexpired keys
+# Openssl to use provided as $1
+# Signer public key file path provided as $2
 
 # Script to run our entire unit test suite.
 # Iterates over the contents of test/input/direct and test/input/unsigned and validates we get the matching contents of test/expected-output
@@ -39,7 +43,7 @@ exit_status=0
 # Direct input tests
 for testfile in "${TOPDIR}"/test/input/direct/* ; do
     filename="${testfile##*/}"
-    $TOPDIR/bin/test/test_authorized_keys.sh "${OPENSSL}" "${TOPDIR}/src/opt/aws/bin/parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${testfile}" "${TOPDIR}/test/expected-output/${filename}"
+    $TOPDIR/bin/test/test_authorized_keys.sh "${OPENSSL}" "${TOPDIR}/src/bin/eic_parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${testfile}" "${TOPDIR}/test/expected-output/${filename}"
     if [ $? -ne 0 ] ; then
         exit_status=1
     fi
@@ -54,7 +58,7 @@ for testdir in "${TOPDIR}"/test/input/unsigned/* ; do
         echo "Unable to run test ${filename}: signature generation failed"
     else
         # Run the actual test
-        $TOPDIR/bin/test/test_authorized_keys.sh "${OPENSSL}" "${TOPDIR}/src/opt/aws/bin/parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${tmpdir}/${filename}" "${TOPDIR}/test/expected-output/${filename}"
+        $TOPDIR/bin/test/test_authorized_keys.sh "${OPENSSL}" "${TOPDIR}/src/bin/eic_parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${tmpdir}/${filename}" "${TOPDIR}/test/expected-output/${filename}"
         if [ $? -ne 0 ] ; then
             exit_status=1
         fi

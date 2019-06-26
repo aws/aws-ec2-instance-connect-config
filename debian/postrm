@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -e
+
+#DEBHELPER#
+
+case "$1" in
+    purge|remove|abort-install|disappear)
+        deb-systemd-helper purge ec2-instance-connect
+        # Delete system user
+        deluser --system --quiet ec2-instance-connect
+        echo "Deleted system user ec2-instance-connect"
+    ;;
+    *)
+        exit 0
+    ;;
+esac

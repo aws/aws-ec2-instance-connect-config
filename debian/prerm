@@ -1,0 +1,29 @@
+#!/bin/sh
+
+set -e
+
+#DEBHELPER#
+
+case "$1" in
+    remove|deconfigure)
+        modified=1
+        # Remove EC2 Instance Connect sshd override if present
+        if [ -f /lib/systemd/system/ssh.service.d/ec2-instance-connect.conf ] ; then
+            rm -f /lib/systemd/system/ssh.service.d/ec2-instance-connect.conf
+            if [ -z "$(ls -A /lib/systemd/system/ssh.service.d)" ] ; then
+                # There were no other overrides, clean up
+                rmdir /lib/systemd/system/ssh.service.d
+            fi
+            modified=0
+        fi
+
+        systemctl daemon-reload
+        deb-systemd-invoke stop ec2-instance-connect.service
+        deb-systemd-helper disable ec2-instance-connect.service
+        if [ $modified -eq 0 ] ; then
+            # Restart sshd
+            echo "sshd override removed, restarting daemon..."
+            deb-systemd-invoke restart ssh.service
+        fi
+    ;;
+esac

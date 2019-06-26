@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -12,6 +12,10 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
+
+# Reads authorized keys blob $3 and prints verified, unexpired keys
+# Openssl to use provided as $1
+# Signer public key file path provided as $2
 
 # Quick script to generate a CA, intermediate, and end certificate
 
@@ -47,7 +51,7 @@ certificate = $dir/ca.crt
 private_key = $dir/ca.key
 default_days = 1
 default_crl_days = 1
-default_md = md5
+default_md = sha256
 preserve = no
 policy = generic_policy
 x509_extensions = usr_cert
@@ -112,7 +116,7 @@ certificate = $dir/intermediate.crt
 private_key = $dir/intermediate.key
 default_days = 1
 default_crl_days = 1
-default_md = md5
+default_md = sha256
 preserve = no
 policy = generic_policy
 x509_extensions = usr_cert

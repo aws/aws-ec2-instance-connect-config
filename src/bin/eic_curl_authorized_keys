@@ -1,0 +1,136 @@
+#!/bin/sh
+
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+# Reads and echoes EC2 Metadata to get the authorized keys blob for the user $1
+
+set -e
+
+curl_cmd="/usr/bin/curl -s -f -m 1"
+
+# Verify the instance ID itself
+instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
+if [ ! -n "${instance}" ] ; then
+  exit 0
+fi
+# Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
+/bin/echo "${instance}" | /bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 0
+# Verify we have an EC2 uuid
+if [ ! -f /sys/hypervisor/uuid ] ; then
+    # Nitro, switch to DMI check
+    if [ ! -f /sys/devices/virtual/dmi/id/board_asset_tag ] ; then
+        # We're out of options.  This is definitely not an instance.
+        /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
+        exit 0
+    elif [ ! $(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag) = $instance ] ; then
+        # The board_asset_tag does not match the instance id.  This is not a valid instance.
+        /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
+        exit 0
+    fi
+elif [ ! $(/bin/cat /sys/hypervisor/uuid | /usr/bin/cut -c1-3) = "ec2" ] ; then
+    # Leading bytes are not "ec2"
+    /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
+    exit 0
+fi
+
+# At this point we're reasonably confident we're running on an EC2 instance.
+
+OPENSSL=/usr/bin/openssl
+
+if [ -z "${1}" ] ; then
+    # No user provided, not really anything to query for.  Fail out.
+    /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked without a user to authorize and will do nothing."
+    exit 1
+fi
+
+/usr/bin/id -u "${1}" > /dev/null 2>&1
+if [ $? -ne 0 ] ; then
+    # User doesn't actually exist.  Let sshd deal with it.
+    exit 0
+fi
+
+# Verify that we have active keys.  Fast-exit if we do not.
+if [ $(eval "${curl_cmd} -o /dev/null -I -w %{http_code} http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/") -eq 404 ]
+then
+    # No keys for this user.   Nothing to do.
+    exit 0
+fi
+# We are not checking format here - that is parse_authorized_keys's job
+
+zone=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/placement/availability-zone/")
+if [ $? -ne 0 ]
+then
+    exit 255
+fi
+# Validate the zone is aa-bb-#c (or aa-bb-cc-#d for special partitions like AWS GovCloud)
+/bin/echo "${zone}" | /bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
+
+region=$(/bin/echo $zone | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
+domain=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/services/domain/")
+if [ $? -ne 0 ]
+then
+    exit 255
+fi
+
+expected_signer=$(/usr/bin/printf 'managed-ssh-signer.%s.%s' "${region}" "${domain}")
+
+userpath=$(/bin/mktemp -d /dev/shm/eic-XXXXXXXX)
+trap 'rm -rf "${userpath}"' EXIT
+/bin/chmod 700 $userpath # Disallow any other writes to tempdir
+signerkeyfile=signer-cert.pem
+keysfile=allowed-keys
+
+# Read the current signer cert
+# This will overwrite whatever currently exists, so it will remain up-to-date
+certificate=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/managed-ssh-keys/signer-cert/")
+if [ ! -n "${certificate}" ]
+then
+  exit 255
+fi
+# parse_authorized_keys will verify this
+
+# Read the signer OCSP staples
+staple_paths=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/managed-ssh-keys/signer-ocsp/")
+if [ $? -ne 0 ]
+then
+    exit 255
+fi
+
+ocsp_path=$(/bin/mktemp -d $userpath/eic-ocsp-XXXXXXXX)
+/bin/chmod 700 $ocsp_path # Disallow any other writes to tempdir
+for word in $staple_paths
+do
+    eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/managed-ssh-keys/signer-ocsp/${word}" | /usr/bin/base64 -d > $ocsp_path/$word
+    if [ $? -ne 0 ]
+    then
+        exit 255
+    fi
+    /bin/chmod 400 $ocsp_path/$word # Disable access to staple file
+done
+# parse_authorized_keys will verify these
+
+# Invoke key parser (will automagically echo the results)
+curl_command="${curl_cmd} http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/"
+DIR="$( cd "$( dirname "${0}" )" && pwd )"
+ca_path=/etc/ssl/certs
+if [ -z "${2}" ] ; then
+    output=$($DIR/eic_parse_authorized_keys -x false -r "${curl_command}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "${ca_path}" -v "${ocsp_path}")
+    exitcode=$? # not quote-escaped since this must be numeric 0-255
+else
+    output=$($DIR/eic_parse_authorized_keys -x false -r "${curl_command}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "${ca_path}" -v "${ocsp_path}" -f "${2}")
+    exitcode=$? # not quote-escaped since this must be numeric 0-255
+fi
+
+/bin/echo "${output}"
+exit $exitcode

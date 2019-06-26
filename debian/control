@@ -1,0 +1,24 @@
+Source: ec2-instance-connect
+Section: net
+Priority: optional
+Standards-Version: 4.1.4
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+XSBC-Original-Maintainer: Daniel Anderson <dnde@amazon.com>
+Build-Depends: debhelper (>= 9)
+
+Package: ec2-instance-connect
+Architecture: all
+Homepage: https://aws.amazon.com/
+Pre-Depends: adduser
+Depends: ca-certificates, coreutils (>=8.0), curl, openssh-server (>=6.9.0), openssl, ${misc:Depends}
+Description: Configures ssh daemon to accept EC2 Instance Connect ssh keys
+ EC2 Instance Connect is a service that publishes ssh keys for use by EC2
+ instances based on AWS Credentials. These keys are consumed by on-instance
+ configuration provided by this package. The ssh daemon will query EC2
+ Instance Metadata service for user-keys at ssh calltime, validate any if
+ present as well as validating their signature, and if all checks pass return
+ will include them in the authorized keys list.
+ .
+ In addition, there is an agent that harvests instance ssh host keys and
+ passes them back to the service.  This is for authentication purposes by
+ the EC2 console to open an in-browser ssh terminal connection.

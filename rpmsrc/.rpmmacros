@@ -1,0 +1,2 @@
+%_topdir   %(pwd)
+%_tmppath  %{_topdir}/tmp

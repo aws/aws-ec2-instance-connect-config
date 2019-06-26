@@ -1,0 +1,163 @@
+#!/bin/bash
+
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+set -e
+
+if [ ! -f /sys/hypervisor/uuid ] ; then
+    # We're definitely not on an EC2 instance.
+    exit 0
+elif [ $(/bin/cat /sys/hypervisor/uuid | /usr/bin/cut -c1-3) != "ec2" ] ; then
+    # We're on a VM but it's not EC2
+    exit 0
+fi
+
+# Calculate the SHA256 of a given string
+# sha256 [string]
+sha256 () {
+    /bin/echo -n "${val}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//'
+}
+
+# Sign a message with a given key
+# sign [key] [msg]
+sign () {
+    /usr/bin/printf "$2" | /usr/bin/openssl dgst -binary -hex -sha256 -mac HMAC -macopt hexkey:$1 | /bin/sed 's/.* //'
+}
+
+# Derive a sigv4 signing key for the given secret
+# get_sigv4_key [key] [datestamp] [region name] [service name]
+getsigv4key () {
+    local base=$(/bin/echo -n "AWS4${1}" | /usr/bin/od -A n -t x1 | /bin/sed ':a;N;$!ba;s/[\n ]//g')
+    local kdate=$(sign "${base}" $2)
+    local kregion=$(sign "${kdate}" $3)
+    local kservice=$(sign "${kregion}" $4)
+    sign "${kservice}" "aws4_request"
+}
+
+curl_cmd="/usr/bin/curl -s -f -m 1"
+
+# Verify that we have instance identity credentials.  Fast-exit if we do not.
+if [ $(eval "${curl_cmd} -o /dev/null -I -w %{http_code} http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/") -ne 200 ]
+then
+    # No keys for this user.   Nothing to do.
+    exit 0
+fi
+
+#Iterates overs /etc/ssh to get the host keys
+for file in /etc/ssh/*.pub; do
+	/usr/bin/test -r "$file" || continue
+	key=$(/bin/cat $file | /usr/bin/awk '{$1=$1};1')
+	keys="${keys:+${keys},}\"${key}\""
+done
+
+#Temporary path to store request parameters
+userpath=$(/bin/mktemp -d /dev/shm/eic-hostkey-XXXXXXXX)
+trap "rm -rf '${userpath}'" EXIT
+
+# Disallow any other writes to tempdir
+/bin/chmod 700 $userpath
+
+#Get zone information
+zone=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/placement/availability-zone/")
+if [ $? -ne 0 ]
+then
+    exit 255
+fi
+
+# Validate the zone
+if [[ ! "${zone}" =~ ^([a-z]+-){2,3}[0-9][a-z]$ ]]
+then
+    exit 255
+fi
+
+# Get domain for calls
+domain=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/services/domain/")
+if [ $? -ne 0 ]
+then
+    exit 255
+fi
+
+#Extract region from zone
+region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
+
+#Fetch instance ID
+instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
+if [ ! -n "${instance}" ]
+then
+  exit 255
+fi
+
+# Validate the instance ID
+if [[ ! "${instance}" =~ ^i-[0-9a-f]{8,17}$ ]]
+then
+    exit 255
+fi
+
+hostkeys=$(/bin/echo ${keys:?})
+
+accountId=$(eval "${curl_cmd} http://169.254.169.254/latest/dynamic/instance-identity/document" | /bin/grep -oP '(?<="accountId" : ")[^"]*(?=")')
+if [[ ! "${accountId}" =~ ^[0-9]{12}$ ]]
+then
+    exit 255
+fi
+val='{"AccountID":"'${accountId}'","AvailabilityZone":"'${zone}'","HostKeys":['${hostkeys}'],"InstanceId":"'${instance}'"}'
+
+# Pull the creds we need for the call
+creds=$(eval "${curl_cmd} http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/")
+if [ $? -ne 0 ] ; then
+    # We failed to load instance-identity credentials
+    exit 255
+fi
+AWS_ACCESS_KEY_ID=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"AccessKeyId" : "\(.*\)",/\1/p')
+AWS_SECRET_ACCESS_KEY=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"SecretAccessKey" : "\(.*\)",/\1/p')
+AWS_SESSION_TOKEN=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"Token" : "\(.*\)",/\1/p')
+unset creds
+
+clearcreds () {
+    unset AWS_SESSION_TOKEN
+    unset AWS_SECRET_ACCESS_KEY
+    unset AWS_ACCESS_KEY_ID
+}
+trap clearcreds EXIT
+
+# Generate, sign, and send the sigv4 request
+host="ec2-instance-connect.${region}.${domain}"
+endpoint="https://${host}"
+
+timestamp=$(/bin/date -u "+%Y-%m-%d %H:%M:%S")
+isoTimestamp=$(/bin/date -ud "${timestamp}" "+%Y%m%dT%H%M%SZ")
+isoDate=$(/bin/date -ud "${timestamp}" "+%Y%m%d")
+
+canonicalQuery="" # We are using POST data, not a querystring
+canonicalHeaders="host:${host}\nx-amz-date:${isoTimestamp}\nx-amz-security-token:${AWS_SESSION_TOKEN}\n"
+signedHeaders="host;x-amz-date;x-amz-security-token"
+
+payloadHash=$(/bin/echo -n "${val}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//')
+
+canonicalRequest="$(/usr/bin/printf "POST\n/PutEC2HostKeys/\n%s\n${canonicalHeaders}\n${signedHeaders}\n%s" "${canonicalQuery}" "${payloadHash}")"
+requestHash=$(/bin/echo -n "${canonicalRequest}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//')
+
+# Derive the signature
+credentialScope="${isoDate}/${region}/ec2-instance-connect/aws4_request"
+toSign="AWS4-HMAC-SHA256\n${isoTimestamp}\n${credentialScope}\n${requestHash}"
+signingKey=$(getsigv4key "${AWS_SECRET_ACCESS_KEY}" "${isoDate}" "${region}" "ec2-instance-connect")
+signature=$(sign "${signingKey}" "${toSign}")
+
+authorizationHeader="AWS4-HMAC-SHA256 Credential=${AWS_ACCESS_KEY_ID}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}"
+
+/usr/bin/curl -X POST -H "Content-Encoding: amz-1.0" -H "Authorization: ${authorizationHeader}" -H "Content-Type: application/json" -H "x-amz-content-sha256: ${payloadHash}" -H "x-amz-date: ${isoTimestamp}" -H "x-amz-security-token: ${AWS_SESSION_TOKEN}" -H "x-amz-target: com.amazon.aws.sshaccessproxyservice.AWSEC2InstanceConnectService.PutEC2HostKeys" -d "${val}" "${endpoint}/PutEC2HostKeys/"
+
+unset AWS_SESSION_TOKEN
+unset AWS_SECRET_ACCESS_KEY
+unset AWS_ACCESS_KEY_ID

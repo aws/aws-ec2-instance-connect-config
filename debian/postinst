@@ -1,0 +1,47 @@
+#!/bin/sh
+
+set -e
+
+#DEBHELPER#
+
+case "$1" in
+    configure)
+        EXEC_OVERRIDE='ExecStart=/usr/sbin/sshd -D -o "AuthorizedKeysCommand /usr/share/ec2-instance-connect/eic_run_authorized_keys %%u %%f" -o "AuthorizedKeysCommandUser ec2-instance-connect" $SSHD_OPTS'
+        modified=1
+
+        # If there is nothing in the AuthorizedKeysCommand field of sshd_config *and* nothing in any sshd override, add our config
+        if ! grep -q '^[^#]*AuthorizedKeysCommand[[:blank:]]\+.*$' /etc/ssh/sshd_config ; then
+            if ! grep -q '^[^#]*AuthorizedKeysCommandUser[[:blank:]]\+.*$' /etc/ssh/sshd_config ; then
+                if ! grep -q '^[^#]*AuthorizedKeysCommandRunAs[[:blank:]]\+.*$' /etc/ssh/sshd_config ; then
+                    # If systemd unit contains AKC don't override it
+                    if ! grep -q "AuthorizedKeysCommand" /lib/systemd/system/ssh.service ; then
+                        can_modify=1
+                        if [ -d /lib/systemd/system/ssh.service.d ] ; then
+                            # If *any* override contains an ExecStart, don't override it
+                            if ! grep -Rq "ExecStart" /lib/systemd/system/ssh.service.d/ ; then
+                                can_modify=0
+                            fi
+                        else
+                            # Or there are no overrides
+                            mkdir /lib/systemd/system/ssh.service.d
+                            can_modify=0
+                        fi
+                        if [ $can_modify -eq 0 ] ; then
+                            # Add our configuration
+                            printf "%s\n%s\n%s\n" "[Service]" "ExecStart=" "${EXEC_OVERRIDE}" > /lib/systemd/system/ssh.service.d/ec2-instance-connect.conf
+                            modified=0
+                        fi
+                    fi
+                fi
+            fi
+        fi
+
+        systemctl daemon-reload
+        deb-systemd-helper enable ec2-instance-connect.service
+        deb-systemd-invoke start ec2-instance-connect.service
+        if [ $modified -eq 0 ] ; then
+            echo "sshd override added, restarting daemon"
+            deb-systemd-invoke restart ssh.service
+        fi
+    ;;
+esac

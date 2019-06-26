@@ -1,0 +1,11 @@
+[Unit]
+Description=EC2 Instance Connect Host Key Harvesting
+Before=sshd.service
+After=network.target sshd-keygen.service
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/share/ec2-instance-connect/eic_harvest_hostkeys

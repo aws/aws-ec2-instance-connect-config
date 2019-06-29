@@ -1,7 +1,7 @@
 [Unit]
 Description=EC2 Instance Connect Host Key Harvesting
-Before=sshd.service
-After=network.target sshd-keygen.service
+Before=ssh.service
+After=network.target ssh-keygen.service
 
 [Install]
 WantedBy=multi-user.target

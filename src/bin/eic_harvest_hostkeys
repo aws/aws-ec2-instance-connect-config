@@ -15,12 +15,30 @@
 
 set -e
 
+curl_cmd="/usr/bin/curl -s -f -m 1"
+
+# Verify the instance ID itself
+instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
+if [ ! -n "${instance}" ] ; then
+  exit 255
+fi
+# Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
+# We have it buffered to 32 chars to futureproof any further EC2 format changes (given some other EC2 resources are already 32 char)
+/bin/echo "${instance}" | /bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 255
+
+# Verify we have an EC2 uuid
 if [ ! -f /sys/hypervisor/uuid ] ; then
-    # We're definitely not on an EC2 instance.
-    exit 0
-elif [ $(/bin/cat /sys/hypervisor/uuid | /usr/bin/cut -c1-3) != "ec2" ] ; then
-    # We're on a VM but it's not EC2
-    exit 0
+    # Nitro, switch to DMI check
+    if [ ! -f /sys/devices/virtual/dmi/id/board_asset_tag ] ; then
+        # We're out of options.  This is definitely not an instance.
+        exit 255
+    elif [ ! $(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag) = $instance ] ; then
+        # The board_asset_tag does not match the instance id.  This is not a valid instance.
+        exit 255
+    fi
+elif [ ! $(/bin/cat /sys/hypervisor/uuid | /usr/bin/cut -c1-3) = "ec2" ] ; then
+    # Leading bytes are not "ec2"
+    exit 255
 fi
 
 # Calculate the SHA256 of a given string
@@ -44,8 +62,6 @@ getsigv4key () {
     local kservice=$(sign "${kregion}" $4)
     sign "${kservice}" "aws4_request"
 }
-
-curl_cmd="/usr/bin/curl -s -f -m 1"
 
 # Verify that we have instance identity credentials.  Fast-exit if we do not.
 if [ $(eval "${curl_cmd} -o /dev/null -I -w %{http_code} http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/") -ne 200 ]
@@ -90,19 +106,6 @@ fi
 
 #Extract region from zone
 region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
-
-#Fetch instance ID
-instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
-if [ ! -n "${instance}" ]
-then
-  exit 255
-fi
-
-# Validate the instance ID
-if [[ ! "${instance}" =~ ^i-[0-9a-f]{8,17}$ ]]
-then
-    exit 255
-fi
 
 hostkeys=$(/bin/echo ${keys:?})
 

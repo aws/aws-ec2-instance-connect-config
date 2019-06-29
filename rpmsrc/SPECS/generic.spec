@@ -14,7 +14,6 @@
 %define         __spec_install_post %{nil}
 %define           debug_package %{nil}
 %define         __os_install_post %{_dbpath}/brp-compress
-%define         _unitdir /lib/systemd/system/
 
 Summary: EC2 instance scripting and configuration for EC2 Instance Connect
 Name: ec2-instance-connect
@@ -23,9 +22,10 @@ Release: !RELEASE!
 License: ASL2.0
 BuildArch: noarch
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+BuildRequires: systemd, systemd-rpm-macros
 Source0: %{name}-%{version}.tar.gz
 Source1: ec2-instance-connect.service
-Requires: openssh >= 6.9.0, coreutils, openssh-server >= 6.9.0, openssl, curl
+Requires: openssh >= 6.9.0, coreutils, openssh-server >= 6.9.0, openssl, curl, systemd
 Requires(pre): /usr/bin/getent, /usr/sbin/adduser, /usr/sbin/usermod, systemd, systemd-units
 Requires(post): /bin/grep, /usr/bin/printf, openssh-server >= 6.9.0, systemd, systemd-units
 Requires(preun): systemd, systemd-units
@@ -71,6 +71,8 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 
 %post
 %systemd_post ec2-instance-connect.service
+# XXX: %system_post just loads any presets (ie, auto-enable/disable).  It does NOT try to start the service!
+/usr/bin/systemctl start ec2-instance-connect.service
 
 modified=1
 
@@ -146,8 +148,9 @@ fi
 
 
 %changelog
-* Tue Jun 25 2019  Daniel Anderson <dnde@amazon.com> 1.1-10
+* Fri Jun 28 2019  Daniel Anderson <dnde@amazon.com> 1.1-10
 - Fix for an update to openssl (or dependencies) affecting behavior of CApath option on openssl verify
+- Fixing Nitro behavior of hostkey harvesting and post-installation systemd hooks
 * Wed May 15 2019  Daniel Anderson <dnde@amazon.com> 1.1-9
 - Fixing existing AuthorizedKeysCommand detection
 - Adding additional licensing headers

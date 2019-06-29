@@ -65,6 +65,6 @@ sed -i "s/\!VERSION\!/${version}/" $BUILDDIR/SPECS/ec2-instance-connect.spec
 sed -i "s/\!RELEASE\!/${release}/" $BUILDDIR/SPECS/ec2-instance-connect.spec
 
 # Build the package
-rpmbuild -ba -bs $BUILDDIR/SPECS/ec2-instance-connect.spec
+rpmbuild -ba $BUILDDIR/SPECS/ec2-instance-connect.spec
 
 cp $BUILDDIR/RPMS/noarch/ec2-instance-connect-$version-$release.noarch.rpm $TOPDIR/

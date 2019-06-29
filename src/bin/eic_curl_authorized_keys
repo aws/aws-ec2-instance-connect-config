@@ -25,6 +25,7 @@ if [ ! -n "${instance}" ] ; then
   exit 0
 fi
 # Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
+# We have it buffered to 32 chars to futureproof any further EC2 format changes (given some other EC2 resources are already 32 char)
 /bin/echo "${instance}" | /bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 0
 # Verify we have an EC2 uuid
 if [ ! -f /sys/hypervisor/uuid ] ; then

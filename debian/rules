@@ -4,4 +4,4 @@
 #DH_VERBOSE=1
 
 %:
-	dh $@
+	dh $@ --with systemd

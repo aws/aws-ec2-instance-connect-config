@@ -1,18 +1,22 @@
-ec2-instance-connect (1.1.10) xenial; urgency=low
+ec2-instance-connect (1.1.10) xenial; urgency=medium
 
   * Fix for an update to openssl (or dependencies) affecting behavior of CApath option on openssl verify
+  * Fixing Nitro behavior of hostkey harvesting and post-installation systemd hooks
   * Adding additional licensing headers
 
- -- Daniel Anderson <dnde@amazon.com>  Tue, 25 Jun 2019 14:15:06 -0800
+ -- Daniel Anderson <dnde@amazon.com>  Fri, 28 Jun 2019 17:05:23 -0700
 
 ec2-instance-connect (1.1.9) xenial; urgency=low
 
+  [ Daniel Anderson ]
   * Improved mechanism for detection if script is running on an EC2 instance
   * postinst: Removed modification of sshd_config introduced in 1.1-8
   * postinst: Better checks for existing AuthorizedKeysCommand* configuration
-  * Fixing existing AuthorizedKeysCommand detection
 
- -- Daniel Anderson <dnde@amazon.com>  Wed, 15 May 2019 11:38:57 -0800
+  [ Mathieu Trudel-Lapierre ]
+  * debian/postinst: Fix regexes for matching/ignoring comments in sshd_config.
+
+ -- Daniel Anderson <dnde@amazon.com>  Fri, 21 Jun 2019 16:43:06 -0400
 
 ec2-instance-connect (1.1.8) xenial; urgency=low
 

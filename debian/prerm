@@ -17,10 +17,8 @@ case "$1" in
             modified=0
         fi
 
-        systemctl daemon-reload
-        deb-systemd-invoke stop ec2-instance-connect.service
-        deb-systemd-helper disable ec2-instance-connect.service
         if [ $modified -eq 0 ] ; then
+            systemctl daemon-reload
             # Restart sshd
             echo "sshd override removed, restarting daemon..."
             deb-systemd-invoke restart ssh.service

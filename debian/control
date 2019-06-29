@@ -4,7 +4,7 @@ Priority: optional
 Standards-Version: 4.1.4
 Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XSBC-Original-Maintainer: Daniel Anderson <dnde@amazon.com>
-Build-Depends: debhelper (>= 9)
+Build-Depends: debhelper (>= 10)
 
 Package: ec2-instance-connect
 Architecture: all

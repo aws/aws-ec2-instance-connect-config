@@ -36,10 +36,8 @@ case "$1" in
             fi
         fi
 
-        systemctl daemon-reload
-        deb-systemd-helper enable ec2-instance-connect.service
-        deb-systemd-invoke start ec2-instance-connect.service
         if [ $modified -eq 0 ] ; then
+            systemctl daemon-reload
             echo "sshd override added, restarting daemon"
             deb-systemd-invoke restart ssh.service
         fi

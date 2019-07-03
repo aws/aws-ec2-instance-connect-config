@@ -22,9 +22,10 @@ Release: !RELEASE!
 License: ASL2.0
 BuildArch: noarch
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
-BuildRequires: systemd, systemd-rpm-macros
+BuildRequires: systemd
 Source0: %{name}-%{version}.tar.gz
 Source1: ec2-instance-connect.service
+Source2: ec2-instance-connect.preset
 Requires: openssh >= 6.9.0, coreutils, openssh-server >= 6.9.0, openssl, curl, systemd
 Requires(pre): /usr/bin/getent, /usr/sbin/adduser, /usr/sbin/usermod, systemd, systemd-units
 Requires(post): /bin/grep, /usr/bin/printf, openssh-server >= 6.9.0, systemd, systemd-units
@@ -45,6 +46,9 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 /bin/mkdir -p  %{buildroot}
 
 /usr/bin/install -D -m 644 %{SOURCE1} %{buildroot}%{_unitdir}/ec2-instance-connect.service
+# While the former is the RHEL standard, both are populated.  And not symlinked.
+/usr/bin/install -D -m 644 %{SOURCE2} %{buildroot}/usr/lib/systemd/system-preset/95-ec2-instance-connect.preset
+/usr/bin/install -D -m 644 %{SOURCE2} %{buildroot}/lib/systemd/system-preset/95-ec2-instance-connect.preset
 
 /bin/mkdir -p %{buildroot}/lib/systemd/hostkey.d
 /bin/echo 'ec2-instance-connect.service' > %{buildroot}/lib/systemd/hostkey.d/60-ec2-instance-connect.list
@@ -61,8 +65,11 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 /opt/aws/bin/eic_curl_authorized_keys
 /opt/aws/bin/eic_parse_authorized_keys
 /opt/aws/bin/eic_harvest_hostkeys
+%defattr(644, root, root, -)
 %{_unitdir}/ec2-instance-connect.service
 /lib/systemd/hostkey.d/60-ec2-instance-connect.list
+/lib/systemd/system-preset/95-ec2-instance-connect.preset
+/usr/lib/systemd/system-preset/95-ec2-instance-connect.preset
 
 %pre
 # Create/configure system user
@@ -126,7 +133,7 @@ if [ $1 -eq 0 ] ; then
             # There were no other overrides, clean up
             /bin/rmdir /lib/systemd/system/sshd.service.d
         fi
-        modified = true
+        modified=0
     fi
 
     # Restart sshd
@@ -148,7 +155,7 @@ fi
 
 
 %changelog
-* Fri Jun 28 2019  Daniel Anderson <dnde@amazon.com> 1.1-10
+* Wed Jul 3 2019  Daniel Anderson <dnde@amazon.com> 1.1-10
 - Fix for an update to openssl (or dependencies) affecting behavior of CApath option on openssl verify
 - Fixing Nitro behavior of hostkey harvesting and post-installation systemd hooks
 * Wed May 15 2019  Daniel Anderson <dnde@amazon.com> 1.1-9

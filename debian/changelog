@@ -4,7 +4,7 @@ ec2-instance-connect (1.1.10) xenial; urgency=medium
   * Fixing Nitro behavior of hostkey harvesting and post-installation systemd hooks
   * Adding additional licensing headers
 
- -- Daniel Anderson <dnde@amazon.com>  Fri, 28 Jun 2019 17:05:23 -0700
+ -- Daniel Anderson <dnde@amazon.com>  Wed, 3 Jul 2019 15:24:28 -0700
 
 ec2-instance-connect (1.1.9) xenial; urgency=low
 

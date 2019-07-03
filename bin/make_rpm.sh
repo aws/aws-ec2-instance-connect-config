@@ -53,6 +53,7 @@ function cleanup {
 trap cleanup EXIT
 
 cp $TOPDIR/src/rpm_systemd/ec2-instance-connect.service $BUILDDIR/SOURCES/
+cp $TOPDIR/src/ec2-instance-connect.preset $BUILDDIR/SOURCES
 ls $BUILDDIR/SOURCES
 
 cd $BUILDDIR # Will ensure some paths are set correctly in rpmbuild

@@ -46,7 +46,7 @@ removeprefix () {
 # Format: verifyocsp [is_debug] [openssl command] [certificate] [issuer] [ocsp directory]
 verifyocsp() {
     # First check if this cert is already trusted
-    cname=$($2 x509 -noout -subject -in $3 2>/dev/null | /bin/sed -n -e 's/^.*CN=//p')
+    cname=$($2 x509 -noout -subject -in $3 2>/dev/null | /bin/sed -n -e 's/^.*CN[[:blank:]]*=[[:blank:]]*//p')
     fingerprint=$($2 x509 -noout -fingerprint -sha1 -inform pem -in $3  2>/dev/null | /bin/sed -n 's/SHA1 Fingerprint[[:space:]]*=[[:space:]]*\(.*\)/\1/p' | tr -d ':')
     ocsp_out=$($2 ocsp -no_nonce -issuer $4 -cert $3 -VAfile $4 -respin $5/$fingerprint 2>/dev/null)
     if [ $? -ne 0 ] || ! startswith "${ocsp_out}" "${3}: good" ; then

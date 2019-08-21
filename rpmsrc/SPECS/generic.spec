@@ -155,6 +155,9 @@ fi
 
 
 %changelog
+* Wed Aug 21 2019 Daniel Anderson <dnde@amazon.com> 1.1-11
+- Removing errant write to /tmp
+- Cleaning up bad bash practices, including umask race condition
 * Wed Jul 3 2019  Daniel Anderson <dnde@amazon.com> 1.1-10
 - Fix for an update to openssl (or dependencies) affecting behavior of CApath option on openssl verify
 - Fixing Nitro behavior of hostkey harvesting and post-installation systemd hooks

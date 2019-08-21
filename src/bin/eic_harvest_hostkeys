@@ -15,11 +15,13 @@
 
 set -e
 
+umask 077
+
 curl_cmd="/usr/bin/curl -s -f -m 1"
 
 # Verify the instance ID itself
 instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
-if [ ! -n "${instance}" ] ; then
+if [ -z "${instance}" ] ; then
   exit 255
 fi
 # Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
@@ -32,11 +34,11 @@ if [ ! -f /sys/hypervisor/uuid ] ; then
     if [ ! -f /sys/devices/virtual/dmi/id/board_asset_tag ] ; then
         # We're out of options.  This is definitely not an instance.
         exit 255
-    elif [ ! $(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag) = $instance ] ; then
+    elif [ ! $(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag) = "${instance}" ] ; then
         # The board_asset_tag does not match the instance id.  This is not a valid instance.
         exit 255
     fi
-elif [ ! $(/bin/cat /sys/hypervisor/uuid | /usr/bin/cut -c1-3) = "ec2" ] ; then
+elif [ ! $(/usr/bin/cut -c1-3 < /sys/hypervisor/uuid) = "ec2" ] ; then
     # Leading bytes are not "ec2"
     exit 255
 fi
@@ -50,16 +52,16 @@ sha256 () {
 # Sign a message with a given key
 # sign [key] [msg]
 sign () {
-    /usr/bin/printf "$2" | /usr/bin/openssl dgst -binary -hex -sha256 -mac HMAC -macopt hexkey:$1 | /bin/sed 's/.* //'
+    /usr/bin/printf "${2}" | /usr/bin/openssl dgst -binary -hex -sha256 -mac HMAC -macopt hexkey:"${1}" | /bin/sed 's/.* //'
 }
 
 # Derive a sigv4 signing key for the given secret
 # get_sigv4_key [key] [datestamp] [region name] [service name]
 getsigv4key () {
     local base=$(/bin/echo -n "AWS4${1}" | /usr/bin/od -A n -t x1 | /bin/sed ':a;N;$!ba;s/[\n ]//g')
-    local kdate=$(sign "${base}" $2)
-    local kregion=$(sign "${kdate}" $3)
-    local kservice=$(sign "${kregion}" $4)
+    local kdate=$(sign "${base}" "${2}")
+    local kregion=$(sign "${kdate}" "${3}")
+    local kservice=$(sign "${kregion}" "${4}")
     sign "${kservice}" "aws4_request"
 }
 
@@ -72,17 +74,14 @@ fi
 
 #Iterates overs /etc/ssh to get the host keys
 for file in /etc/ssh/*.pub; do
-	/usr/bin/test -r "$file" || continue
-	key=$(/bin/cat $file | /usr/bin/awk '{$1=$1};1')
+	/usr/bin/test -r "${file}" || continue
+	key=$(/usr/bin/awk '{$1=$1};1' < "${file}")
 	keys="${keys:+${keys},}\"${key}\""
 done
 
 #Temporary path to store request parameters
 userpath=$(/bin/mktemp -d /dev/shm/eic-hostkey-XXXXXXXX)
-trap "rm -rf '${userpath}'" EXIT
-
-# Disallow any other writes to tempdir
-/bin/chmod 700 $userpath
+trap 'rm -rf "${userpath}"' EXIT
 
 #Get zone information
 zone=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/placement/availability-zone/")
@@ -107,7 +106,7 @@ fi
 #Extract region from zone
 region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
 
-hostkeys=$(/bin/echo ${keys:?})
+hostkeys=$(/bin/echo "${keys:?}")
 
 accountId=$(eval "${curl_cmd} http://169.254.169.254/latest/dynamic/instance-identity/document" | /bin/grep -oP '(?<="accountId" : ")[^"]*(?=")')
 if [[ ! "${accountId}" =~ ^[0-9]{12}$ ]]

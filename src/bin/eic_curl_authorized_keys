@@ -17,11 +17,14 @@
 
 set -e
 
+# Set umask so only we can touch temp files
+umask 077
+
 curl_cmd="/usr/bin/curl -s -f -m 1"
 
 # Verify the instance ID itself
 instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
-if [ ! -n "${instance}" ] ; then
+if [ -z "${instance}" ] ; then
   exit 0
 fi
 # Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
@@ -34,12 +37,12 @@ if [ ! -f /sys/hypervisor/uuid ] ; then
         # We're out of options.  This is definitely not an instance.
         /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
         exit 0
-    elif [ ! $(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag) = $instance ] ; then
+    elif [ ! $(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag) = "${instance}" ] ; then
         # The board_asset_tag does not match the instance id.  This is not a valid instance.
         /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
         exit 0
     fi
-elif [ ! $(/bin/cat /sys/hypervisor/uuid | /usr/bin/cut -c1-3) = "ec2" ] ; then
+elif [ ! $(/usr/bin/cut -c1-3 < /sys/hypervisor/uuid) = "ec2" ] ; then
     # Leading bytes are not "ec2"
     /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
     exit 0
@@ -77,7 +80,7 @@ fi
 # Validate the zone is aa-bb-#c (or aa-bb-cc-#d for special partitions like AWS GovCloud)
 /bin/echo "${zone}" | /bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
 
-region=$(/bin/echo $zone | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
+region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
 domain=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/services/domain/")
 if [ $? -ne 0 ]
 then
@@ -88,14 +91,11 @@ expected_signer=$(/usr/bin/printf 'managed-ssh-signer.%s.%s' "${region}" "${doma
 
 userpath=$(/bin/mktemp -d /dev/shm/eic-XXXXXXXX)
 trap 'rm -rf "${userpath}"' EXIT
-/bin/chmod 700 $userpath # Disallow any other writes to tempdir
-signerkeyfile=signer-cert.pem
-keysfile=allowed-keys
 
 # Read the current signer cert
 # This will overwrite whatever currently exists, so it will remain up-to-date
 certificate=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/managed-ssh-keys/signer-cert/")
-if [ ! -n "${certificate}" ]
+if [ -z "${certificate}" ]
 then
   exit 255
 fi
@@ -108,16 +108,15 @@ then
     exit 255
 fi
 
-ocsp_path=$(/bin/mktemp -d $userpath/eic-ocsp-XXXXXXXX)
-/bin/chmod 700 $ocsp_path # Disallow any other writes to tempdir
+ocsp_path=$(/bin/mktemp -d "${userpath}/eic-ocsp-XXXXXXXX")
 for word in $staple_paths
 do
-    eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/managed-ssh-keys/signer-ocsp/${word}" | /usr/bin/base64 -d > $ocsp_path/$word
+    eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/managed-ssh-keys/signer-ocsp/${word}" | /usr/bin/base64 -d > "${ocsp_path}/${word}"
     if [ $? -ne 0 ]
     then
         exit 255
     fi
-    /bin/chmod 400 $ocsp_path/$word # Disable access to staple file
+    /bin/chmod 400 "${ocsp_path}/${word}" # Disable access to staple file
 done
 # parse_authorized_keys will verify these
 

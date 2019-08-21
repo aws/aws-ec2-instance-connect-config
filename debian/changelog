@@ -1,3 +1,10 @@
+ec2-instance-connect (1.1.11) xenial; urgency=high
+
+  * Removing errant write to /tmp
+  * Cleaning up bad bash practices, including umask race condition
+
+ -- Daniel Anderson <dnde@amazon.com>  Wed, 21 Aug 2019 12:31:23 -0700
+
 ec2-instance-connect (1.1.10) xenial; urgency=medium
 
   * Fix for an update to openssl (or dependencies) affecting behavior of CApath option on openssl verify

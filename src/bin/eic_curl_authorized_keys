@@ -55,10 +55,17 @@ if [ -z "${1}" ] ; then
     exit 1
 fi
 
-/usr/bin/id -u "${1}" > /dev/null 2>&1
+/usr/bin/id -u -- "${1}" > /dev/null 2>&1
 if [ $? -ne 0 ] ; then
     # User doesn't actually exist.  Let sshd deal with it.
     exit 0
+fi
+
+echo "${1}" | fgrep -q '/'
+if [ $? -eq 0 ]; then
+    # User contains a slash which could manipulate our URL below
+    /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect encountered dangerous user name containing slashes and will do nothing."
+    exit 1
 fi
 
 # Verify that we have active keys.  Fast-exit if we do not.

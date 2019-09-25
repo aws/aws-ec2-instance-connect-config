@@ -25,7 +25,7 @@ umask 077
 # Failure reporting & exit
 # Format: fail [is_debug] [message]
 fail () {
-    if [ "$1" = true ] ; then
+    if [ "${1}" = true ] ; then
         /bin/echo "${2}"
     else
         /usr/bin/logger -i -p authpriv.info "${2}"

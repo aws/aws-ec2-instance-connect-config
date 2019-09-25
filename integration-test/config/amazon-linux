@@ -1,0 +1,6 @@
+INSTALL="sudo yum -y install"
+REMOVE="sudo yum -y remove"
+SSHD_CONFIG_MODIFIED="1"
+SCRIPT_PATH="/opt/aws/bin"
+SSHD_SERVICE="sshd"
+MISSING_SSHD_NEWLINE="0"

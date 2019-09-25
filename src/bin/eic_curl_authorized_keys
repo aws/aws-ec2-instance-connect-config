@@ -65,7 +65,7 @@ if [ $? -ne 0 ] ; then
 fi
 
 # Verify that we have active keys.  Fast-exit if we do not.
-if [ $(eval "${curl_cmd} -o /dev/null -I -w %{http_code} http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/") -eq 404 ]
+if [ $(eval "${curl_cmd} -o /dev/null -I -w %{http_code} \"http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/\"") -eq 404 ]
 then
     # No keys for this user.   Nothing to do.
     exit 0
@@ -121,7 +121,7 @@ done
 # parse_authorized_keys will verify these
 
 # Invoke key parser (will automagically echo the results)
-curl_command="${curl_cmd} http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/"
+curl_command="${curl_cmd} \"http://169.254.169.254/latest/meta-data/managed-ssh-keys/active-keys/${1}/\""
 DIR="$( cd "$( dirname "${0}" )" && pwd )"
 ca_path=/etc/ssl/certs
 if [ -z "${2}" ] ; then

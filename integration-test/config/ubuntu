@@ -1,0 +1,5 @@
+INSTALL="sudo apt-get -y install"
+REMOVE="sudo apt-get -y remove"
+SSHD_CONFIG_MODIFIED="0"
+SCRIPT_PATH="/etc/share/ec2-instance-connect"
+SSHD_SERVICE="ssh"

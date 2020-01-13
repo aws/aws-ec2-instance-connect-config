@@ -20,7 +20,9 @@ set -e
 # Set umask so only we can touch temp files
 umask 077
 
-curl_cmd="/usr/bin/curl -s -f -m 1"
+TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60"`
+metadata_token="-H X-aws-ec2-metadata-token: $TOKEN"
+curl_cmd="/usr/bin/curl -s -f -m 1 ${metadata_token}"
 
 # Verify the instance ID itself
 instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")

@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+# Reads authorized keys blob $3 and prints verified, unexpired keys
+# Openssl to use provided as $1
+# Signer public key file path provided as $2
+
 # Test of EIC host key harvesting mechanism.  Regenerate rsa host key, re-trigger harvest, and ensure new key is returned.
 # NOTE THIS TEST REQUIRES THE EC2 OS USER HAVE SUDO PERMISSION FOR SSH HOST KEY REGENERATION AND RESTARTING HOST KEY HARVEST
 
@@ -68,14 +85,14 @@ getsigv4key () {
     local kservice=$(sign "${kregion}" "${4}")
     sign "${kservice}" "aws4_request"
 }
-curl_cmd="curl -s -f -m 1"
-accountId=$(eval "${curl_cmd} http://169.254.169.254/latest/dynamic/instance-identity/document" | grep -oP '(?<="accountId" : ")[^"]*(?=")')
-domain=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/services/domain/")
-zone=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/placement/availability-zone/")
+IMDS_TOKEN="$(/usr/bin/curl -s -f -m 1 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 5")"
+accountId=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/dynamic/instance-identity/document" | grep -oP '(?<="accountId" : ")[^"]*(?=")')
+domain=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/services/domain/")
+zone=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/placement/availability-zone/")
 region=$(echo "${zone}" | sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
-instance=$(eval "${curl_cmd}" "http://169.254.169.254/latest/meta-data/instance-id/")
+instance=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/instance-id/")
 val='{"AccountID":"'${accountId}'","AvailabilityZone":"'${zone}'","InstanceId":"'${instance}'"}'
-creds=$(eval "${curl_cmd} http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/")
+creds=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/")
 AWS_ACCESS_KEY_ID=$(echo "${creds}" | sed -n 's/.*"AccessKeyId" : "\(.*\)",/\1/p')
 AWS_SECRET_ACCESS_KEY=$(echo "${creds}" | sed -n 's/.*"SecretAccessKey" : "\(.*\)",/\1/p')
 AWS_SESSION_TOKEN=$(echo "${creds}" | sed -n 's/.*"Token" : "\(.*\)",/\1/p')

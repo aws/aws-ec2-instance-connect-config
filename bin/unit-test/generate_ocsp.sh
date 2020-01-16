@@ -43,11 +43,11 @@ tmpfile=$(mktemp /dev/shm/tmp-XXXXXXXX)
 
 # Generate the OCSP request
 
-$1 ocsp -no_nonce -issuer $3.crt -cert $2 -VAfile $3.crt -reqout $tmpfile
+"${1}" ocsp -no_nonce -issuer "${3}.crt" -cert "${2}" -VAfile "${3}".crt -reqout "${tmpfile}"
 
 # Generate the response
 # Yes, we're using the CA to sign the response as well.  Since this is for unit testing use we don't need strict security.
-$1 ocsp -index $3.db.index -rsigner $3.crt -rkey $3.key -CA $3.crt -VAfile $3.crt -reqin $tmpfile -respout $4 > /dev/null 2>&1
+"${1}" ocsp -index "${3}.db.index" -rsigner "${3}.crt" -rkey "${3}.key" -CA "${3}.crt" -VAfile "${3}.crt" -reqin "${tmpfile}" -respout "${4}" > /dev/null 2>&1
 
 # Drop the request, we don't need it anymore
-rm -f $tmpfile
+rm -f "${tmpfile}"

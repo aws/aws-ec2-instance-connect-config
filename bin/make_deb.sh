@@ -31,15 +31,15 @@ if [ $# -ne 2 ] ; then
 fi
 
 md5 () {
-    /bin/echo -n "${val}" | /usr/bin/md5sum | /bin/sed 's/\s.*$//'
+    echo -n "${1}" | md5sum | sed 's/\s.*$//'
 }
 
 sha1 () {
-    /bin/echo -n "${val}" | /usr/bin/sha1sum | /bin/sed 's/\s.*$//'
+    echo -n "${1}" | sha1sum | sed 's/\s.*$//'
 }
 
 sha256 () {
-    /bin/echo -n "${val}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//'
+    echo -n "${1}" | sha256sum | sed 's/\s.*$//'
 }
 
 TOPDIR=$(dirname "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )")
@@ -49,26 +49,26 @@ release=$2
 pkgdir="${TOPDIR}/ec2-instance-connect-${version}-${release}"
 
 # Copy source files
-mkdir $pkgdir
-mkdir -p $pkgdir/ec2-instance-connect
-cp $TOPDIR/src/bin/* $pkgdir/ec2-instance-connect/
+mkdir "${pkgdir}"
+mkdir -p "${pkgdir}/ec2-instance-connect"
+cp "${TOPDIR}"/src/bin/* "${pkgdir}/ec2-instance-connect/"
 # Dump /bin, /usr/bin, etc from binary paths names since we want to use $PATH on Ubuntu/etc
-sed -i "s%/usr/bin/%%g" $pkgdir/ec2-instance-connect/*
-sed -i "s%^/bin/%%g" $pkgdir/ec2-instance-connect/*
-sed -i "s%\([^\#][^\!]\)/bin/%\1%g" $pkgdir/ec2-instance-connect/*
+sed -i "s%/usr/bin/%%g" "${pkgdir}"/ec2-instance-connect/*
+sed -i "s%^/bin/%%g" "${pkgdir}"/ec2-instance-connect/*
+sed -i "s%\([^\#][^\!]\)/bin/%\1%g" "${pkgdir}"/ec2-instance-connect/*
 # Copy ec2-instance-connect service file
-cp -r $TOPDIR/src/deb_systemd/ec2-instance-connect.service $pkgdir/
-cp -r $TOPDIR/src/ec2-instance-connect.preset $pkgdir/95-ec2-instance-connect.preset
+cp -r "${TOPDIR}/src/deb_systemd/ec2-instance-connect.service" "${pkgdir}/"
+cp -r "${TOPDIR}/src/ec2-instance-connect.preset" "${pkgdir}/95-ec2-instance-connect.preset"
 
-mkdir $pkgdir/debian
-cp -r $TOPDIR/debian/* $pkgdir/debian/
-sed -i "s/\!VERSION\!/${version}-${release}/" $pkgdir/debian/control
+mkdir "${pkgdir}/debian"
+cp -r "${TOPDIR}"/debian/* "${pkgdir}/debian/"
+sed -i "s/\!VERSION\!/${version}-${release}/" "${pkgdir}/debian/control"
 
 # Do the actual packaging
 return_dir=$(pwd)
-cd $pkgdir
+cd "${pkgdir}" || exit 1
 debuild
 
 # Clean up
-cd $return_dir
-rm -rf $pkgdir
+cd "${return_dir}" || exit 1
+rm -rf "${pkgdir}"

@@ -49,11 +49,11 @@ trap 'rm -rf "${signing_temp}"' EXIT
 
 for file in "${input_dir}"/* ; do
     # Generate the signature
-    $OPENSSL dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -sign $private_key -out $signing_temp/signature $file
+    "${OPENSSL}" dgst -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:32 -sign "${private_key}" -out "${signing_temp}/signature" "${file}"
     # Base64 encode it
-    base64 $signing_temp/signature > $signing_temp/encoded
+    base64 "${signing_temp}/signature" > "${signing_temp}/encoded"
     # Add the input file dump & its signature to the target
-    cat $file $signing_temp/encoded >> $target
+    cat "${file}" "${signing_temp}/encoded" >> "${target}"
     # Append a newline
-    echo >> $target
+    echo >> "${target}"
 done

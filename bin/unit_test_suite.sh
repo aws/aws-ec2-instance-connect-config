@@ -27,24 +27,25 @@ tmpdir=$(mktemp -d /dev/shm/tmp-XXXXXXXX)
 trap 'rm -rf "${tmpdir}"' EXIT
 
 # Generate test certificates
-$TOPDIR/bin/unit-test/setup_certificates.sh "${OPENSSL}" $tmpdir
+"${TOPDIR}/bin/unit-test/setup_certificates.sh" "${OPENSSL}" "${tmpdir}"
 # Combine unittest & intermediate into the trust chain for the actual AuthorizedKeysCommand
-cat $tmpdir/unittest.pem $tmpdir/intermediate.pem $tmpdir/ca.pem > $tmpdir/chain.pem
+cat "${tmpdir}/unittest.pem" "${tmpdir}/intermediate.pem" "${tmpdir}/ca.pem" > "${tmpdir}/chain.pem"
 
-intermediate_fingerprint=$(openssl x509 -noout -fingerprint -sha1 -inform pem -in $tmpdir/intermediate.pem | sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')
-unittest_fingerprint=$(openssl x509 -noout -fingerprint -sha1 -inform pem -in $tmpdir/unittest.pem | sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')
+intermediate_fingerprint="$(openssl x509 -noout -fingerprint -sha1 -inform pem -in "${tmpdir}/intermediate.pem" | sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')"
+unittest_fingerprint="$(openssl x509 -noout -fingerprint -sha1 -inform pem -in "${tmpdir}"/unittest.pem | sed -n 's/SHA1 Fingerprint=\(.*\)/\1/p' | tr -d ':')"
 
 # Generate OCSP for those certificates
-$TOPDIR/bin/unit-test/generate_ocsp.sh "${OPENSSL}" "${tmpdir}/intermediate.crt" "${tmpdir}/ca" "${tmpdir}/${intermediate_fingerprint}"
-$TOPDIR/bin/unit-test/generate_ocsp.sh "${OPENSSL}" "${tmpdir}/unittest.crt" "${tmpdir}/intermediate" "${tmpdir}/${unittest_fingerprint}"
+"${TOPDIR}/bin/unit-test/generate_ocsp.sh" "${OPENSSL}" "${tmpdir}/intermediate.crt" "${tmpdir}/ca" "${tmpdir}/${intermediate_fingerprint}"
+"${TOPDIR}/bin/unit-test/generate_ocsp.sh" "${OPENSSL}" "${tmpdir}/unittest.crt" "${tmpdir}/intermediate" "${tmpdir}/${unittest_fingerprint}"
 
 exit_status=0
 
 # Direct input tests
 for testfile in "${TOPDIR}"/unit-test/input/direct/* ; do
     filename="${testfile##*/}"
-    $TOPDIR/bin/unit-test/test_authorized_keys.sh "${OPENSSL}" "${TOPDIR}/src/bin/eic_parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${testfile}" "${TOPDIR}/unit-test/expected-output/${filename}"
-    if [ $? -ne 0 ] ; then
+    "${TOPDIR}/bin/unit-test/test_authorized_keys.sh" "${OPENSSL}" "${TOPDIR}/src/bin/eic_parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${testfile}" "${TOPDIR}/unit-test/expected-output/${filename}"
+    result="${?}"
+    if [ "${result}" -ne 0 ] ; then
         exit_status=1
     fi
 done
@@ -53,18 +54,18 @@ done
 for testdir in "${TOPDIR}"/unit-test/input/unsigned/* ; do
     # Generate signatures for key blobs
     filename="${testdir##*/}"
-    $TOPDIR/bin/unit-test/sign_data.sh "${OPENSSL}" "${tmpdir}/unittest.key" "${testdir}" "${tmpdir}/${filename}"
-    if [ $? -ne 0 ] ; then
+    if [ "$("${TOPDIR}/bin/unit-test/sign_data.sh" "${OPENSSL}" "${tmpdir}/unittest.key" "${testdir}" "${tmpdir}/${filename}")" ] ; then
         echo "Unable to run test ${filename}: signature generation failed"
     else
         # Run the actual test
-        $TOPDIR/bin/unit-test/test_authorized_keys.sh "${OPENSSL}" "${TOPDIR}/src/bin/eic_parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${tmpdir}/${filename}" "${TOPDIR}/unit-test/expected-output/${filename}"
-        if [ $? -ne 0 ] ; then
+        "${TOPDIR}/bin/unit-test/test_authorized_keys.sh" "${OPENSSL}" "${TOPDIR}/src/bin/eic_parse_authorized_keys" "${tmpdir}/chain.pem" "${tmpdir}/ca.crt" "${tmpdir}" "${tmpdir}/${filename}" "${TOPDIR}/unit-test/expected-output/${filename}"
+        result="${?}"
+        if [ "${result}" -ne 0 ] ; then
             exit_status=1
         fi
     fi
 done
 
-rm -rf $tmpdir
+rm -rf "${tmpdir:?}"
 
-exit $exit_status
+exit "${exit_status}"

@@ -1,3 +1,11 @@
+ec2-instance-connect (1.1.12) xenial; urgency=high
+
+  * Adding support for Instance Metadata Service Version 2
+  * Modifying cURL invocation to avoid need for eval
+  * Cleaning up shellcheck catches
+
+ -- Daniel Anderson <dnde@amazon.com>  Tue, 19 Nov 2019 10:38:09 -0800
+
 ec2-instance-connect (1.1.11) xenial; urgency=high
 
   * Removing errant write to /tmp
@@ -93,4 +101,3 @@ ec2-instance-connect (1.0.1) UNRELEASED; urgency=low
   * Initial package build for EC2 Instance Connect targeting Amazon Linux 2
 
  -- Daniel Anderson <dnde@amazon.com>  Tue, 12 Jun 2018 15:45:34 -0700
- 

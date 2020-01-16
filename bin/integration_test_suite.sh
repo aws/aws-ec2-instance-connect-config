@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+# Reads authorized keys blob $3 and prints verified, unexpired keys
+# Openssl to use provided as $1
+# Signer public key file path provided as $2
+
 # Runs our full suite of integration tests against all known instance types
 
 # Basic string concat w/ newline
@@ -80,10 +97,10 @@ fi
 # Fetch information about the subnet (AZ, etc)
 subnet_output=$(aws ec2 describe-subnets --subnet-ids "${subnet_id}")
 subnet_status=$?
-if [ $subnet_status -ne 0 ] ; then
+if [ "${subnet_status}" -ne 0 ] ; then
     echo "Failed to query subnet information:"
     echo "${subnet_output}"
-    exit $subnet_status
+    exit "${subnet_status}"
 fi
 
 zone=$(echo "${subnet_output}" | grep "\"AvailabilityZone\"" | cut -d '"' -f 4)
@@ -103,7 +120,7 @@ for instance_type in "${instance_types[@]}" ; do
     # Run instance
     launch_output=$("${TOPDIR}/bin/integration-test/run_instance.sh" -t "${instance_type}" -a "${ami_id}" -k "${key_name}" -s "${subnet_id}" -g "${security_group_id}" -n "EIC Integration Test ${instance_type}" -r "${region}" -o "${osuser}" -p "${private_key}")
     launch_status=$?
-    if [ $launch_status -ne 0 ] ; then
+    if [ "${launch_status}" -ne 0 ] ; then
         output=$(concat "${output}" "${launch_output}")
         instance_exit=1
     else
@@ -114,22 +131,23 @@ for instance_type in "${instance_types[@]}" ; do
         scp_out=$(scp -i "${private_key}" -o StrictHostKeyChecking=no "${package_path}" "${osuser}@${public_ip}:/tmp/${package_name}" 2>&1)
         install_status=$?
         output=$(concat "${output}" "${scp_out}")
-        if [ $install_status -eq 0 ] ; then
+        if [ "${install_status}" -eq 0 ] ; then
             # FIXME: Ubuntu AMIs fail here due to dpkg lock contention
-            ssh_out=$(ssh -i "${private_key}" -o StrictHostKeyChecking=no "${osuser}@${public_ip}" "${INSTALL} /tmp/${package_name}" 2>&1)
+            ssh -i "${private_key}" -o StrictHostKeyChecking=no "${osuser}@${public_ip}" "${INSTALL} /tmp/${package_name}" 1>/dev/null 2>&1
             install_status=$?
             output=$(concat "${output}" "${scp_out}")
         else
+            output=$(concat "${output}" "Failed to scp package to instance.")
             instance_exit=1
         fi
-        if [ $install_status -ne 0 ] ; then
+        if [ "${install_status}" -ne 0 ] ; then
             output=$(concat "${output}" "Failed to install EIC package on instance.")
             instance_exit=1
         else
             # Run the actual tests
             "${TOPDIR}/bin/integration-test/run_test_sweep.sh" -i "${instance_id}" -p "${public_ip}" -k "${private_key}" -u "${osuser}" -z "${zone}" -o "${output_directory}/${instance_type}" -l "${distro}" -f "${package_path}"
             test_exit=$?
-            if [ $test_exit -ne 0 ] ; then
+            if [ "${test_exit}" -ne 0 ] ; then
                 overall_exit=1
             else
                 rmdir "${output_directory}/${instance_type}"
@@ -138,18 +156,18 @@ for instance_type in "${instance_types[@]}" ; do
         # Terminate the instance
         aws ec2 terminate-instances --instance-ids "${instance_id}" 1>/dev/null
     fi
-    if [ $instance_exit -ne 0 ] ; then
+    if [ "${instance_exit}" -ne 0 ] ; then
         echo "Could not run tests on instance."
         echo "${output}" > "${output_directory}/${instance_type}/setup"
         overall_exit=1
     fi
 done
 
-if [ $overall_exit -ne 0 ] ; then
+if [ "${overall_exit}" -ne 0 ] ; then
     echo "Some instance types failed.  Please check the contents of ${output_directory} for details."
 else
     echo "All instance types passed!  Removing failed output directory since it is empty."
     rmdir "${output_directory}"
 fi
 
-exit $overall_exit
+exit "${overall_exit}"

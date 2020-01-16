@@ -33,11 +33,11 @@ OPENSSL="${1}"
 certpath="${2}"
 
 # Configure the CA
-mkdir -p $certpath/ca.db.certs
-touch $certpath/ca.db.index
-echo 01 > $certpath/ca.db.serial
+mkdir -p "${certpath}/ca.db.certs"
+touch "${certpath}/ca.db.index"
+echo 01 > "${certpath}/ca.db.serial"
 
-cat > $certpath/ca.conf <<'EOF'
+cat > "${certpath}/ca.conf" <<'EOF'
 default_ca = ca_default
 
 [ca_default]
@@ -87,22 +87,22 @@ distinguished_name = req_distinguished_name
 
 EOF
 
-sed -i "s|REPLACE_WITH_CERTPATH|${certpath}|" $certpath/ca.conf
+sed -i "s|REPLACE_WITH_CERTPATH|${certpath}|" "${certpath}/ca.conf"
 
 # Generate the CA
-$OPENSSL genrsa -out $certpath/ca.key 2048 > /dev/null 2>&1
-$OPENSSL req -x509 -new -nodes -key $certpath/ca.key -sha256 -days 1 -out $certpath/ca.crt -subj "/CN=managedssh.amazonaws.com" > /dev/null 2>&1
-$OPENSSL x509 -in $certpath/ca.crt -outform PEM -out $certpath/ca.pem
-subject=$($OPENSSL x509 -noout -subject -in $certpath/ca.pem | sed -n -e 's/^.*CN=//p')
+"${OPENSSL}" genrsa -out "${certpath}/ca.key" 2048 > /dev/null 2>&1
+"${OPENSSL}" req -x509 -new -nodes -key "${certpath}/ca.key" -sha256 -days 1 -out "${certpath}/ca.crt" -subj "/CN=managedssh.amazonaws.com" > /dev/null 2>&1
+"${OPENSSL}" x509 -in "${certpath}/ca.crt" -outform PEM -out "${certpath}/ca.pem"
+subject=$("${OPENSSL}" x509 -noout -subject -in "${certpath}/ca.pem" | sed -n -e 's/^.*CN=//p')
 # Add "# subject" to start
-sed -i '1s;^;# '"$subject"'\n;' $certpath/ca.crt
+sed -i '1s;^;# '"$subject"'\n;' "${certpath}/ca.crt"
 
 # Configure the intermediary
-mkdir -p $certpath/intermediate.db.certs
-touch $certpath/intermediate.db.index
-echo 01 > $certpath/intermediate.db.serial
+mkdir -p "${certpath}/intermediate.db.certs"
+touch "${certpath}/intermediate.db.index"
+echo 01 > "${certpath}/intermediate.db.serial"
 
-cat > $certpath/intermediate.conf <<'EOF'
+cat > "${certpath}/intermediate.conf" <<'EOF'
 default_ca = ca_default
 
 [ca_default]
@@ -147,16 +147,16 @@ distinguished_name = req_distinguished_name
 
 EOF
 
-sed -i "s|REPLACE_WITH_CERTPATH|${certpath}|" $certpath/intermediate.conf
+sed -i "s|REPLACE_WITH_CERTPATH|${certpath}|" "${certpath}/intermediate.conf"
 
 # Generate & sign the intermediary
-$OPENSSL genrsa -out $certpath/intermediate.key 2048 > /dev/null 2>&1
-$OPENSSL req -new -nodes -config $certpath/ca.conf -key $certpath/intermediate.key -out $certpath/intermediate.csr -extensions v3_ocsp -subj "/CN=intermediate.managedssh.amazonaws.com" > /dev/null 2>&1
-yes | $OPENSSL ca -config $certpath/ca.conf -in $certpath/intermediate.csr -cert $certpath/ca.crt -keyfile $certpath/ca.key -out $certpath/intermediate.crt -extensions v3_ocsp -extensions v3_ca > /dev/null 2>&1
-$OPENSSL x509 -in $certpath/intermediate.crt -outform PEM -out $certpath/intermediate.pem
+"${OPENSSL}" genrsa -out "${certpath}/intermediate.key" 2048 > /dev/null 2>&1
+"${OPENSSL}" req -new -nodes -config "${certpath}/ca.conf" -key "${certpath}/intermediate.key" -out "${certpath}/intermediate.csr" -extensions v3_ocsp -subj "/CN=intermediate.managedssh.amazonaws.com" > /dev/null 2>&1
+yes | "${OPENSSL}" ca -config "${certpath}/ca.conf" -in "${certpath}/intermediate.csr" -cert "${certpath}/ca.crt" -keyfile "${certpath}/ca.key" -out "${certpath}/intermediate.crt" -extensions v3_ocsp -extensions v3_ca > /dev/null 2>&1
+"${OPENSSL}" x509 -in "${certpath}/intermediate.crt" -outform PEM -out "${certpath}/intermediate.pem"
 
 # Generate and sign the test cert
-$OPENSSL genrsa -out $certpath/unittest.key 2048 > /dev/null 2>&1
-$OPENSSL req -new -nodes -config $certpath/intermediate.conf -key $certpath/unittest.key -out $certpath/unittest.csr -subj "/CN=unittest.managedssh.amazonaws.com" > /dev/null 2>&1
-yes | $OPENSSL ca -config $certpath/intermediate.conf -in $certpath/unittest.csr -cert $certpath/intermediate.crt -keyfile $certpath/intermediate.key -out $certpath/unittest.crt > /dev/null 2>&1
-$OPENSSL x509 -in $certpath/unittest.crt -outform PEM -out $certpath/unittest.pem
+"${OPENSSL}" genrsa -out "${certpath}/unittest.key" 2048 > /dev/null 2>&1
+"${OPENSSL}" req -new -nodes -config "${certpath}/intermediate.conf" -key "${certpath}/unittest.key" -out "${certpath}/unittest.csr" -subj "/CN=unittest.managedssh.amazonaws.com" > /dev/null 2>&1
+yes | "${OPENSSL}" ca -config "${certpath}/intermediate.conf" -in "${certpath}/unittest.csr" -cert "${certpath}/intermediate.crt" -keyfile "${certpath}/intermediate.key" -out "${certpath}/unittest.crt" > /dev/null 2>&1
+"${OPENSSL}" x509 -in "${certpath}/unittest.crt" -outform PEM -out "${certpath}/unittest.pem"

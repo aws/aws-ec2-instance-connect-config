@@ -19,15 +19,15 @@
 
 TOPDIR=$(dirname "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )")
 
-verrel=$(cat $TOPDIR/VERSION)
-version=${verrel%-*}
+verrel="$(cat "${TOPDIR}/VERSION")"
+version="${verrel%-*}"
 pkgver="ec2-instance-connect-${version}"
 
-mkdir -p $TOPDIR/$pkgver/opt/aws/bin
-cp $TOPDIR/src/bin/* $TOPDIR/$pkgver/opt/aws/bin/
+mkdir -p "${TOPDIR}/${pkgver}/opt/aws/bin"
+cp "${TOPDIR}"/src/bin/* "${TOPDIR}/${pkgver}/opt/aws/bin/"
 if [ $# -eq 1 ] ; then # TODO: better check.  Low-priority.
-    /bin/sed -i "s%^ca_path=/etc/ssl/certs$%ca_path=/etc/ssl/certs/ca-bundle.crt%" $TOPDIR/$pkgver/opt/aws/bin/eic_curl_authorized_keys
+    /bin/sed -i "s%^ca_path=/etc/ssl/certs$%ca_path=/etc/ssl/certs/ca-bundle.crt%" "${TOPDIR}/${pkgver}/opt/aws/bin/eic_curl_authorized_keys"
 fi
-tar -czf $TOPDIR/$pkgver.tar.gz -C $TOPDIR $pkgver/
-rm -rf $TOPDIR/$pkgver/*
-rmdir $TOPDIR/$pkgver
+tar -czf "${TOPDIR}/${pkgver}.tar.gz" -C "${TOPDIR}" "${pkgver}/"
+rm -rf "${TOPDIR:?}/${pkgver:?}"/*
+rmdir "${TOPDIR}/${pkgver}"

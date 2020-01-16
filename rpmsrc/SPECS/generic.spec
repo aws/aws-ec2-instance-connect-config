@@ -155,6 +155,10 @@ fi
 
 
 %changelog
+* Tue Nov 19 2019 Daniel Anderson <dnde@amazon.com> 1.1-12
+- Adding support for Instance Metadata Service Version 2
+- Modifying cURL invocation to avoid need for eval
+- Cleaning up shellcheck catches
 * Wed Aug 21 2019 Daniel Anderson <dnde@amazon.com> 1.1-11
 - Removing errant write to /tmp
 - Cleaning up bad bash practices, including umask race condition

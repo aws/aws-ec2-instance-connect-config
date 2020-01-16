@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+# Reads authorized keys blob $3 and prints verified, unexpired keys
+# Openssl to use provided as $1
+# Signer public key file path provided as $2
+
 # Attempts to launch an instance to the given specification
 # Outputs instance ID on success or where it failed otherwise
 
@@ -41,9 +58,9 @@ done
 
 launch_output=$(aws ec2 run-instances --region "${region}" --image-id "${ami_id}" --key-name "${key_name}" --security-group-ids "${security_group_id}" --subnet-id "${subnet_id}" --instance-initiated-shutdown-behavior "terminate" --instance-type "${instance_type}" --tag-specifications "[{\"ResourceType\":\"instance\",\"Tags\":[{\"Key\":\"Name\",\"Value\":\"${name_tag}\"}]}]")
 launch_code=$?
-if [ $launch_code -ne 0 ] ; then
+if [ "${launch_code}" -ne 0 ] ; then
     echo "Instance launch failed!"
-    exit $launch_code
+    exit "${launch_code}"
 fi
 
 instance_id=$(echo "${launch_output}" | grep \"InstanceId\" | cut -d '"' -f 4)
@@ -53,7 +70,7 @@ try="0"
 while [ $try -lt 60 ] ; do
     aws ec2 describe-instances --instance-ids "${instance_id}" | grep "Name" | grep -q "running"
     launch_code=$?
-    if [ $launch_code -eq 0 ] ; then
+    if [ "${launch_code}" -eq 0 ] ; then
         try="60"
         running=1
     else
@@ -71,7 +88,8 @@ ssh_try="0"
 public_ip=$(aws ec2 describe-instances --instance-ids "${instance_id}" | grep "PublicIp" | cut -d '"' -f 4 | uniq)
 while [ $ssh_try -lt 30 ] ; do
     ssh -q -i "${private_key}" -o StrictHostKeyChecking=no "${osuser}@${public_ip}" exit 2>&1
-    if [ $? -eq 0 ] ; then
+    launch_code="${?}"
+    if [ "${launch_code}" -eq 0 ] ; then
         # Everything's ready
         echo "${instance_id}"
         exit 0

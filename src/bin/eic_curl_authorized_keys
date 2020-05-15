@@ -87,7 +87,7 @@ if [ "${id_exit}" -ne 0 ] ; then
 fi
 
 # Verify that we have active keys.  Fast-exit if we do not.
-keys_status="$(/usr/bin/curl -s -f -m 1 -H "${IMDS_TOKEN_HEADER}" -o /dev/null -I -w %{http_code} "${IMDS}/managed-ssh-keys/active-keys/${1}/")"
+keys_status="$(/usr/bin/curl -s -f -m 1 -H "${IMDS_TOKEN_HEADER}" -o /dev/null -I -w %{http_code} "${IMDS}/managed-ssh-keys/active-keys/${1}/")" && true
 if [ "${keys_status}" != "200" ]
 then
     # No keys for this user.   Nothing to do.

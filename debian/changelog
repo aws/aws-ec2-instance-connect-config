@@ -1,3 +1,9 @@
+ec2-instance-connect (1.1.13) xenial; urgency=high
+
+  * Verify that domain returned from IMDS is an AWS domain
+
+ -- Jacob Meisler <meislerj@amazon.com>  Thu, 22 Oct 2020 00:00:00 -0400
+
 ec2-instance-connect (1.1.12) xenial; urgency=high
 
   * Adding support for Instance Metadata Service Version 2

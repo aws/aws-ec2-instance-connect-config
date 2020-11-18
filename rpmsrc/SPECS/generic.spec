@@ -155,6 +155,8 @@ fi
 
 
 %changelog
+* Thu Oct 22 2020 Jacob Meisler <meislerj@amazon.com> 1.1-13
+- Verify that domain returned from IMDS is an AWS domain
 * Tue Nov 19 2019 Daniel Anderson <dnde@amazon.com> 1.1-12
 - Adding support for Instance Metadata Service Version 2
 - Modifying cURL invocation to avoid need for eval

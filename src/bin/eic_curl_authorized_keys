@@ -111,6 +111,17 @@ if [ "${domain_exit}" -ne 0 ]
 then
     exit "${domain_exit}"
 fi
+is_domain_valid=1
+for valid_domain in amazonaws.com amazonaws.com.cn c2s.ic.gov sc2s.sgov.gov; do
+    if [ "$domain" = "$valid_domain" ]; then
+        is_domain_valid=0
+        break
+    fi
+done
+if [ $is_domain_valid -eq 1 ]; then
+    /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect found an invalid domain and will do nothing."
+    exit 255
+fi
 
 expected_signer=$(/usr/bin/printf 'managed-ssh-signer.%s.%s' "${region}" "${domain}")
 

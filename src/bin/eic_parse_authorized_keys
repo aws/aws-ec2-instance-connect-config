@@ -295,7 +295,17 @@ output=$(
 
             # Begin validation
             if [ -n "${instance_id}" ] && [ "${timestamp}" -ne 0 ] ; then
-                fingerprint=$(/usr/bin/ssh-keygen -lf "${pathprefix}-key" | cut -d ' ' -f 2) # Get only the actual fingerprint, ignore key size & source
+                # ssh-keygen can return error, based on that we grab the error and set rc appropriately
+                # we make sure that we capture stderr to stdout into the fingerprintval variable.
+                # then we work with fingerprintval variable and print the return code for further debugging.
+                set +e
+                fingerprintval=$(/usr/bin/ssh-keygen -vlf "${pathprefix}-key" 2>&1)
+                rc="${?}"
+                if [ $rc -ne 0 ] ; then
+                        /usr/bin/logger -i -p authpriv.info "ssh-keygen returned status ${exitcode} and fingerprintval as ${fingerprintval}"
+                fi
+                fingerprint=$(/usr/bin/echo $fingerprintval | cut -d ' ' -f 2) # Get only the actual fingerprint, ignore key size & source
+                set -e
                 # If we were told to expect a specific key and this isn't it, skip it
                 if [ -z "${expected_key}" ] || [ "$fingerprint" = "${expected_key}" ] ; then
                     # Check instance ID matches & timestamp is still valid

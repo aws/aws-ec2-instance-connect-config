@@ -84,7 +84,8 @@ The systemd module provided for host key harvesting is a basic one-shot to invok
 ### eic_harvest_host_keys
 
 The host key harvesting script has to run similar logic to eic_curl_authorized_keys to get some basic information from Instance Metadata Service about the instance itself.
-It then reads the ssh host keys on the machine, then creates and signs an AWS Signature Version 4 Request to 
+It then reads the ssh host keys on the machine, then creates and signs an AWS Signature Version 4 POST request which is sent to our
+service at `https://ec2-instance-connect.${region}.${domain}/PutEC2HostKeys/` with the host keys in the payload.
 
 ## Unit Testing
 
@@ -141,6 +142,10 @@ Each may be invoked via `make rpm` and `make deb` respectively.
 Debian packaging in particular requires you have a GPG key configured on your system.
 
 Be sure to update VERSION!  If you use the same VERSION as the latest public release then test instances will not see it as an update!
+
+### [EXPERIMENTAL] Docker Container Build
+
+You can build .rpm packages using Docker via `make docker-build-rpm` and .deb packages via `make docker-build-deb`. You can run both via `make docker-build`. The built packages will be in the `out` directory. This currently does not support the Amazon-proprietary build process.
 
 **Debian packaging tools are intended for testing purposes only.  Please follow standard Debian process to submit patches.**
 

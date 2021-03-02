@@ -155,6 +155,8 @@ fi
 
 
 %changelog
+* Fri Feb 26 2021 Paul Oh <pauoh@amazon.com> 1.1-14
+- Ensure failure to run host key harvesting does not leave instances in degraded state
 * Thu Oct 22 2020 Jacob Meisler <meislerj@amazon.com> 1.1-13
 - Verify that domain returned from IMDS is an AWS domain
 * Tue Nov 19 2019 Daniel Anderson <dnde@amazon.com> 1.1-12

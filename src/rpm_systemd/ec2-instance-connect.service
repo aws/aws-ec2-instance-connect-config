@@ -8,4 +8,8 @@ WantedBy=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/aws/bin/eic_harvest_hostkeys
+# Prefixing the ExecStart executable with a '-' ignores any failure exit codes and considers it a success
+# This is to avoid issues with the host key harvesting script during system startup
+# and not leave the system in a degraded state.
+# See Table 1 under ExecStart= for details https://www.freedesktop.org/software/systemd/man/systemd.service.html
+ExecStart=-/opt/aws/bin/eic_harvest_hostkeys

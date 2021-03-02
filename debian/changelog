@@ -1,3 +1,9 @@
+ec2-instance-connect (1.1.14) xenial; urgency=high
+
+  * Ensure failure to run host key harvesting does not leave instances in degraded state
+
+ -- Paul Oh <pauoh@amazon.com>  Fri, 26 Feb 2021 10:00:00 -0400
+
 ec2-instance-connect (1.1.13) xenial; urgency=high
 
   * Verify that domain returned from IMDS is an AWS domain

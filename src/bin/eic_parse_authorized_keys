@@ -320,7 +320,7 @@ output=$(
                                     /usr/bin/logger -i -p authpriv.info "${callermessage}"
                                 fi
                                 # Return key to the ssh daemon
-                                /bin/echo "${key}"
+                                /bin/echo "environment=\"EIC_CALLER=${caller}\" ${key}"
                                 exitcode=0
                             fi
                         fi

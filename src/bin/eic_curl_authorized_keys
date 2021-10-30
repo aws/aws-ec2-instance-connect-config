@@ -50,24 +50,7 @@ if [ -z "${instance}" ] ; then
 fi
 # Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
 # We have it buffered to 32 chars to futureproof any further EC2 format changes (given some other EC2 resources are already 32 char)
-/bin/echo "${instance}" | /usr/bin/head -n 1 | /bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 0
-# Verify we have an EC2 uuid
-if [ ! -f /sys/hypervisor/uuid ] ; then
-    # Nitro, switch to DMI check
-    if [ ! -f /sys/devices/virtual/dmi/id/board_asset_tag ] ; then
-        # We're out of options.  This is definitely not an instance.
-        /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
-        exit 0
-    elif [ "$(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag)" != "${instance}" ] ; then
-        # The board_asset_tag does not match the instance id.  This is not a valid instance.
-        /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
-        exit 0
-    fi
-elif [ "$(/usr/bin/cut -c1-3 < /sys/hypervisor/uuid)" != "ec2" ] ; then
-    # Leading bytes are not "ec2"
-    /usr/bin/logger -i -p authpriv.info "EC2 Instance Connect was invoked on a non-instance and will do nothing."
-    exit 0
-fi
+/bin/echo "${instance}" | /usr/bin/head -n 1 | /usr/bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 0
 
 # At this point we're reasonably confident we're running on an EC2 instance.
 
@@ -102,9 +85,9 @@ then
     exit "${zone_exit}"
 fi
 # Validate the zone is aa-bb-#c (or aa-bb-cc-#d for special partitions like AWS GovCloud)
-/bin/echo "${zone}" | /usr/bin/head -n 1 | /bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
+/bin/echo "${zone}" | /usr/bin/head -n 1 | /usr/bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
 
-region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
+region=$(/bin/echo "${zone}" | /usr/bin/sed -En 's/(([a-z]+-)+[0-9]+).*/\1/p')
 domain=$(curl_cmd "${IMDS_TOKEN_HEADER}" "${IMDS}/services/domain/")
 domain_exit="${?}"
 if [ "${domain_exit}" -ne 0 ]
@@ -125,7 +108,7 @@ fi
 
 expected_signer=$(/usr/bin/printf 'managed-ssh-signer.%s.%s' "${region}" "${domain}")
 
-userpath=$(/bin/mktemp -d /dev/shm/eic-XXXXXXXX)
+userpath=$(/usr/bin/mktemp -d /tmp/eic-XXXXXXXX)
 trap 'rm -rf "${userpath:?}"' EXIT
 
 # Read the current signer cert
@@ -146,7 +129,7 @@ then
     exit "${staple_exit}"
 fi
 
-ocsp_path=$(/bin/mktemp -d "${userpath}/eic-ocsp-XXXXXXXX")
+ocsp_path=$(/usr/bin/mktemp -d "${userpath}/eic-ocsp-XXXXXXXX")
 for word in $staple_paths
 do
     curl_cmd "${IMDS_TOKEN_HEADER}" "${IMDS}/managed-ssh-keys/signer-ocsp/${word}" | /usr/bin/base64 -d > "${ocsp_path}/${word}"
@@ -163,7 +146,13 @@ done
 keys_file="${userpath}/eic-keys"
 curl_cmd "${IMDS_TOKEN_HEADER}" "${IMDS}/managed-ssh-keys/active-keys/${1}/" > "${keys_file}"
 DIR="$( cd "$( dirname "${0}" )" && pwd )"
-ca_path=/etc/ssl/certs
+if [ "$(uname -s)" = "Darwin" ] ; then
+    ca_path="${userpath}/ca.pem"
+    security find-certificate -ap /Library/Keychains/System.keychain >> "${ca_path}"
+    security find-certificate -ap /System/Library/Keychains/SystemRootCertificates.keychain > "${ca_path}"
+else
+    ca_path=/etc/ssl/certs
+fi
 if [ -z "${2}" ] ; then
     output="$("${DIR}/eic_parse_authorized_keys" -x false -p "${keys_file}" -o "${OPENSSL}" -d "${userpath}" -s "${certificate}" -i "${instance}" -c "${expected_signer}" -a "${ca_path}" -v "${ocsp_path}")"
     exitcode=$? # not quote-escaped since this must be numeric 0-255

@@ -18,3 +18,6 @@
 set -e
 DIR="$( cd "$( dirname "${0}" )" && pwd )"
 /usr/bin/timeout 5s "${DIR}/eic_curl_authorized_keys" "$@"
+
+# Allow SSSD coexist with eic_curl_authorized_keys
+[ -x /usr/bin/sss_ssh_authorizedkeys ] && /usr/bin/sss_ssh_authorizedkeys "$@"

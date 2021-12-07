@@ -1,3 +1,10 @@
+ec2-instance-connect (1.1.15) xenial; urgency=high
+
+  * Change EIC Hostkeys Harvesting to be asynchronous from SSHD to improve instance boot time
+  * Rename and enable ec2-instance-connect-harvest-hostkeys.service. Remove pointer to old ec2-instance-connect.service.
+
+ -- Vishrutha Konappa Reddy <vkreddy@amazon.com>  Thu, Sep 9 2021 12:50:55 -0400
+
 ec2-instance-connect (1.1.14) xenial; urgency=high
 
   * Ensure failure to run host key harvesting does not leave instances in degraded state

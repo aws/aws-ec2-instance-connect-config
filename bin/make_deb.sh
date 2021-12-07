@@ -57,8 +57,8 @@ sed -i "s%/usr/bin/%%g" "${pkgdir}"/ec2-instance-connect/*
 sed -i "s%^/bin/%%g" "${pkgdir}"/ec2-instance-connect/*
 sed -i "s%\([^\#][^\!]\)/bin/%\1%g" "${pkgdir}"/ec2-instance-connect/*
 # Copy ec2-instance-connect service file
-cp -r "${TOPDIR}/src/deb_systemd/ec2-instance-connect.service" "${pkgdir}/"
-cp -r "${TOPDIR}/src/ec2-instance-connect.preset" "${pkgdir}/95-ec2-instance-connect.preset"
+cp -r "${TOPDIR}/src/deb_systemd/ec2-instance-connect-harvest-hostkeys.service" "${pkgdir}/"
+cp -r "${TOPDIR}/src/ec2-instance-connect-harvest-hostkeys.preset" "${pkgdir}/95-ec2-instance-connect-harvest-hostkeys.preset"
 
 mkdir "${pkgdir}/debian"
 cp -r "${TOPDIR}"/debian/* "${pkgdir}/debian/"

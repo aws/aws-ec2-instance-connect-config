@@ -31,43 +31,48 @@ if [ -z "${instance}" ] ; then
 fi
 # Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
 # We have it buffered to 32 chars to futureproof any further EC2 format changes (given some other EC2 resources are already 32 char)
-/bin/echo "${instance}" | /usr/bin/head -n 1 | /bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 255
+/bin/echo "${instance}" | /usr/bin/head -n 1 | /usr/bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 255
 
-# Verify we have an EC2 uuid
-if [ ! -f /sys/hypervisor/uuid ] ; then
-    # Nitro, switch to DMI check
-    if [ ! -f /sys/devices/virtual/dmi/id/board_asset_tag ] ; then
-        # We're out of options.  This is definitely not an instance.
-        exit 255
-    elif [ "$(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag)" != "${instance}" ] ; then
-        # The board_asset_tag does not match the instance id.  This is not a valid instance.
-        exit 255
+# Calculate the SHA256 of standard input
+# sha256sum
+sha256sum () {
+    if [ "$(uname -s)" = "Darwin" ] ; then
+        /usr/bin/shasum -a 256 2>/dev/null
+    else
+        /usr/bin/sha256sum
     fi
-elif [ "$(/usr/bin/cut -c1-3 < /sys/hypervisor/uuid)" != "ec2" ] ; then
-    # Leading bytes are not "ec2"
-    exit 255
-fi
+}
 
 # Calculate the SHA256 of a given string
 # sha256 [string]
 sha256 () {
-    /bin/echo -n "${1}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//'
+    /bin/echo -n "${1}" | sha256sum | /usr/bin/awk '{ print $1 }'
 }
 
 # Sign a message with a given key
 # sign [key] [msg]
 sign () {
-    /usr/bin/printf "${2}" | /usr/bin/openssl dgst -binary -hex -sha256 -mac HMAC -macopt hexkey:"${1}" | /bin/sed 's/.* //'
+    /usr/bin/printf "${2}" | /usr/bin/openssl dgst -binary -hex -sha256 -mac HMAC -macopt hexkey:"${1}" | /usr/bin/sed 's/.* //'
 }
 
 # Derive a sigv4 signing key for the given secret
 # get_sigv4_key [key] [datestamp] [region name] [service name]
 getsigv4key () {
-    base="$(/bin/echo -n "AWS4${1}" | /usr/bin/od -A n -t x1 | /bin/sed ':a;N;$!ba;s/[\n ]//g')"
+    base="$(/bin/echo -n "AWS4${1}" | /usr/bin/od -A n -t x1 | /usr/bin/sed -E -e ':a' -e '$!N' -e '$!ba' -e 's/\n| //g')"
     kdate="$(sign "${base}" "${2}")"
     kregion="$(sign "${kdate}" "${3}")"
     kservice="$(sign "${kregion}" "${4}")"
     sign "${kservice}" "aws4_request"
+}
+
+# Format date with the given format string
+# fmtdate [date] [format string]
+fmtdate () {
+    if [ "$(uname -s)" = "Darwin" ] ; then
+        /bin/date -ujf "%Y-%m-%d %H:%M:%S" "${1}" "${2}"
+    else
+        /bin/date -ud "${1}" "${2}"
+    fi
 }
 
 # Verify that we have instance identity credentials.  Fast-exit if we do not.
@@ -80,13 +85,13 @@ fi
 
 #Iterates overs /etc/ssh to get the host keys
 for file in /etc/ssh/*.pub; do
-	/usr/bin/test -r "${file}" || continue
+	/bin/test -r "${file}" || continue
 	key=$(/usr/bin/awk '{$1=$1};1' < "${file}")
 	keys="${keys:+${keys},}\"${key}\""
 done
 
 #Temporary path to store request parameters
-userpath=$(/bin/mktemp -d /dev/shm/eic-hostkey-XXXXXXXX)
+userpath=$(/usr/bin/mktemp -d /tmp/eic-hostkey-XXXXXXXX)
 trap 'rm -rf "${userpath}"' EXIT
 
 #Get zone information
@@ -98,7 +103,7 @@ then
 fi
 
 # Validate the zone
-/bin/echo "${zone}" | /usr/bin/head -n 1 | /bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
+/bin/echo "${zone}" | /usr/bin/head -n 1 | /usr/bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
 
 # Get domain for calls
 domain=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/services/domain/")
@@ -109,12 +114,12 @@ then
 fi
 
 #Extract region from zone
-region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
+region=$(/bin/echo "${zone}" | /usr/bin/sed -En 's/(([a-z]+-)+[0-9]+).*/\1/p')
 
 hostkeys=$(/bin/echo "${keys:?}")
 
-accountId=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/dynamic/instance-identity/document" | /bin/grep -oP '(?<="accountId" : ")[^"]*(?=")')
-/bin/echo "${accountId}" | /usr/bin/head -n 1 | /bin/grep -Eq "^[0-9]{12}$" || exit 255
+accountId=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/dynamic/instance-identity/document" | /usr/bin/sed -En 's/.*"accountId" : "(.*)",/\1/p')
+/bin/echo "${accountId}" | /usr/bin/head -n 1 | /usr/bin/grep -Eq "^[0-9]{12}$" || exit 255
 val='{"AccountID":"'${accountId}'","AvailabilityZone":"'${zone}'","HostKeys":['${hostkeys}'],"InstanceId":"'${instance}'"}'
 
 # Pull the creds we need for the call
@@ -124,9 +129,9 @@ if [ "${creds_exit}" -ne 0 ] ; then
     # We failed to load instance-identity credentials
     exit "${creds_exit}"
 fi
-AWS_ACCESS_KEY_ID=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"AccessKeyId" : "\(.*\)",/\1/p')
-AWS_SECRET_ACCESS_KEY=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"SecretAccessKey" : "\(.*\)",/\1/p')
-AWS_SESSION_TOKEN=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"Token" : "\(.*\)",/\1/p')
+AWS_ACCESS_KEY_ID=$(/bin/echo "${creds}" | /usr/bin/sed -En 's/.*"AccessKeyId" : "(.*)",/\1/p')
+AWS_SECRET_ACCESS_KEY=$(/bin/echo "${creds}" | /usr/bin/sed -En 's/.*"SecretAccessKey" : "(.*)",/\1/p')
+AWS_SESSION_TOKEN=$(/bin/echo "${creds}" | /usr/bin/sed -En 's/.*"Token" : "(.*)",/\1/p')
 unset creds
 
 clearcreds () {
@@ -141,17 +146,17 @@ host="ec2-instance-connect.${region}.${domain}"
 endpoint="https://${host}"
 
 timestamp=$(/bin/date -u "+%Y-%m-%d %H:%M:%S")
-isoTimestamp=$(/bin/date -ud "${timestamp}" "+%Y%m%dT%H%M%SZ")
-isoDate=$(/bin/date -ud "${timestamp}" "+%Y%m%d")
+isoTimestamp=$(fmtdate "${timestamp}" "+%Y%m%dT%H%M%SZ")
+isoDate=$(fmtdate "${timestamp}" "+%Y%m%d")
 
 canonicalQuery="" # We are using POST data, not a querystring
 canonicalHeaders="host:${host}\nx-amz-date:${isoTimestamp}\nx-amz-security-token:${AWS_SESSION_TOKEN}\n"
 signedHeaders="host;x-amz-date;x-amz-security-token"
 
-payloadHash=$(/bin/echo -n "${val}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//')
+payloadHash=$(sha256 "${val}")
 
 canonicalRequest="$(/usr/bin/printf "POST\n/PutEC2HostKeys/\n%s\n${canonicalHeaders}\n${signedHeaders}\n%s" "${canonicalQuery}" "${payloadHash}")"
-requestHash=$(/bin/echo -n "${canonicalRequest}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//')
+requestHash=$(sha256 "${canonicalRequest}")
 
 # Derive the signature
 credentialScope="${isoDate}/${region}/ec2-instance-connect/aws4_request"

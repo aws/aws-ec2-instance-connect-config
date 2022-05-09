@@ -72,7 +72,7 @@ sudo chmod 644 /etc/ssh/ssh_host_rsa_key.pub
 pubkey=$(cat /etc/ssh/ssh_host_rsa_key.pub | awk '{$1=$1};1')
 
 echo "Retriggering host key harvesting"
-sudo systemctl restart ec2-instance-connect.service
+sudo systemctl restart ec2-instance-connect-harvest-hostkeys.service
 
 echo "Retrieving keys from service"
 sign () {

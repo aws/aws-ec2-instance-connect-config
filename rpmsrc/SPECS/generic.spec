@@ -157,6 +157,10 @@ fi
 
 
 %changelog
+* Mon May 9 2022 Jacob Meisler <meislerj@amazon.com> 1.1-17
+- OpenSSL 3.0.2 breaks strict x509 verification for one of our intermediate CA certificates.
+- Only verify CA certificates that aren't already trusted in /etc/ssl/certs.
+- OpenSSL 3.0.2 also changes the formatting of the SHA1 fingerprint of an x509 certificate. Switch to a case insensitive match to be backwards and forwards compatible between OpenSSL versions.
 * Thu Sep 9 2021 Vishrutha Konappa Reddy <vkreddy@amazon.com> 1.1-15
 - Change EIC Hostkeys Harvesting to be asynchronous from SSHD to improve instance boot time
 - Rename and enable ec2-instance-connect-harvest-hostkeys.service. Remove pointer to old ec2-instance-connect.service.

@@ -157,6 +157,8 @@ fi
 
 
 %changelog
+* Thu Jun 9 2022 Vishrutha Konappa Reddy <vkreddy@amazon.com> 1.1-18
+- Update curl command to not fail silently on HTTP server error.
 * Mon May 9 2022 Jacob Meisler <meislerj@amazon.com> 1.1-17
 - OpenSSL 3.0.2 breaks strict x509 verification for one of our intermediate CA certificates.
 - Only verify CA certificates that aren't already trusted in /etc/ssl/certs.

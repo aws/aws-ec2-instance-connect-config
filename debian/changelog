@@ -1,3 +1,9 @@
+ec2-instance-connect (1.1.19) xenial; urgency=high
+
+  * Remove hostkey harvesting.
+
+ -- Vishrutha Konappa Reddy <vkreddy@amazon.com>  Wed, Jul 9 2022 17:30:00 -0400
+
 ec2-instance-connect (1.1.18) xenial; urgency=high
 
   * Update curl command to not fail silently on HTTP server error.

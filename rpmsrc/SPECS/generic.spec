@@ -24,8 +24,6 @@ BuildArch: noarch
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: systemd
 Source0: %{name}-%{version}.tar.gz
-Source1: ec2-instance-connect-harvest-hostkeys.service
-Source2: ec2-instance-connect-harvest-hostkeys.preset
 Requires: openssh >= 6.9.0, coreutils, openssh-server >= 6.9.0, openssl, curl, systemd
 Requires(pre): /usr/bin/getent, /usr/sbin/adduser, /usr/sbin/usermod, systemd, systemd-units
 Requires(post): /bin/grep, /usr/bin/printf, openssh-server >= 6.9.0, systemd, systemd-units
@@ -45,14 +43,6 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 /bin/rm -rf %{buildroot}
 /bin/mkdir -p  %{buildroot}
 
-/usr/bin/install -D -m 644 %{SOURCE1} %{buildroot}%{_unitdir}/ec2-instance-connect-harvest-hostkeys.service
-# While the former is the RHEL standard, both are populated.  And not symlinked.
-/usr/bin/install -D -m 644 %{SOURCE2} %{buildroot}/usr/lib/systemd/system-preset/95-ec2-instance-connect-harvest-hostkeys.preset
-/usr/bin/install -D -m 644 %{SOURCE2} %{buildroot}/lib/systemd/system-preset/95-ec2-instance-connect-harvest-hostkeys.preset
-
-/bin/mkdir -p %{buildroot}/lib/systemd/hostkey.d
-/bin/echo 'ec2-instance-connect-harvest-hostkeys.service' > %{buildroot}/lib/systemd/hostkey.d/60-ec2-instance-connect.list
-
 # in builddir
 /bin/cp -a * %{buildroot}
 
@@ -64,12 +54,6 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 /opt/aws/bin/eic_run_authorized_keys
 /opt/aws/bin/eic_curl_authorized_keys
 /opt/aws/bin/eic_parse_authorized_keys
-/opt/aws/bin/eic_harvest_hostkeys
-%defattr(644, root, root, -)
-%{_unitdir}/ec2-instance-connect-harvest-hostkeys.service
-/lib/systemd/hostkey.d/60-ec2-instance-connect.list
-/lib/systemd/system-preset/95-ec2-instance-connect-harvest-hostkeys.preset
-/usr/lib/systemd/system-preset/95-ec2-instance-connect-harvest-hostkeys.preset
 
 %pre
 # Create/configure system user
@@ -77,11 +61,6 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 /usr/sbin/usermod -L ec2-instance-connect
 
 %post
-# Remove dangling pointers to ec2-instance-connect.service
-/bin/rm -f /etc/systemd/system/multi-user.target.wants/ec2-instance-connect.service
-/usr/bin/systemctl preset ec2-instance-connect-harvest-hostkeys.service
-# XXX: %system_post just loads any presets (ie, auto-enable/disable).  It does NOT try to start the service!
-/usr/bin/systemctl start ec2-instance-connect-harvest-hostkeys.service
 
 modified=1
 
@@ -123,7 +102,6 @@ if [ $modified -eq 0 ] ; then
 fi
 
 %preun
-%systemd_preun ec2-instance-connect-harvest-hostkeys.service
 
 if [ $1 -eq 0 ] ; then
     modified=1
@@ -148,7 +126,6 @@ if [ $1 -eq 0 ] ; then
 fi
 
 %postun
-%systemd_postun_with_restart ec2-instance-connect-harvest-hostkeys.service
 
 if [ $1 -eq 0 ] ; then
     # Delete system user

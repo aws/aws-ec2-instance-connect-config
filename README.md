@@ -72,21 +72,6 @@ If all of these checks pass then the key will be presented to the ssh daemon.  O
 
 Any time a key is provided to the ssh daemon it will be logged to the system authpriv log for auditing purposes.
 
-## Host Key Harvesting
-
-The fourth script, eic_harvest_hostkeys, has no direct relation to the AuthorizedKeysCommand.  Instead, it is used to pass the instance's ssh host keys back to the EC2 Instance Connect Service.
-This is necessary to establish trust for the EC2 Console for the console's one-click in-browser ssh terminal feature.
-
-### systemd Module
-
-The systemd module provided for host key harvesting is a basic one-shot to invoke eic_harvest_hostkeys.
-
-### eic_harvest_host_keys
-
-The host key harvesting script has to run similar logic to eic_curl_authorized_keys to get some basic information from Instance Metadata Service about the instance itself.
-It then reads the ssh host keys on the machine, then creates and signs an AWS Signature Version 4 POST request which is sent to our
-service at `https://ec2-instance-connect.${region}.${domain}/PutEC2HostKeys/` with the host keys in the payload.
-
 ## Unit Testing
 
 As parse_authorized_keys requires a valid certificate, CA, and OCSP staples, unit testing is a somewhat involved process.

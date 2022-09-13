@@ -134,6 +134,8 @@ fi
 
 
 %changelog
+* Thu Jul 9 2022 Vishrutha Konappa Reddy <vkreddy@amazon.com> 1.1-19
+- Remove hostkey harvesting.
 * Thu Jun 9 2022 Vishrutha Konappa Reddy <vkreddy@amazon.com> 1.1-18
 - Update curl command to not fail silently on HTTP server error.
 * Mon May 9 2022 Jacob Meisler <meislerj@amazon.com> 1.1-17

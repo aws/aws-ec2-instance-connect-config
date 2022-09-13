@@ -1,0 +1,170 @@
+#!/bin/sh
+
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+set -e
+
+umask 077
+
+# Fetch the IMDSv2 access token.  5 seconds is overall AKC timeout so we use that.
+IMDS_TOKEN="$(/usr/bin/curl -s -f -m 1 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 5")"
+if [ -z "${IMDS_TOKEN}" ] ; then
+    # Fast fail
+    exit 255
+fi
+
+# Verify the instance ID itself
+instance=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/instance-id/")
+if [ -z "${instance}" ] ; then
+  exit 255
+fi
+# Validate the instance ID is i-abcd1234 (8 or 17 char, hex)
+# We have it buffered to 32 chars to futureproof any further EC2 format changes (given some other EC2 resources are already 32 char)
+/bin/echo "${instance}" | /usr/bin/head -n 1 | /bin/grep -Eq "^i-[0-9a-f]{8,32}$" || exit 255
+
+# Verify we have an EC2 uuid
+if [ ! -f /sys/hypervisor/uuid ] ; then
+    # Nitro, switch to DMI check
+    if [ ! -f /sys/devices/virtual/dmi/id/board_asset_tag ] ; then
+        # We're out of options.  This is definitely not an instance.
+        exit 255
+    elif [ "$(/bin/cat /sys/devices/virtual/dmi/id/board_asset_tag)" != "${instance}" ] ; then
+        # The board_asset_tag does not match the instance id.  This is not a valid instance.
+        exit 255
+    fi
+elif [ "$(/usr/bin/cut -c1-3 < /sys/hypervisor/uuid)" != "ec2" ] ; then
+    # Leading bytes are not "ec2"
+    exit 255
+fi
+
+# Calculate the SHA256 of a given string
+# sha256 [string]
+sha256 () {
+    /bin/echo -n "${1}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//'
+}
+
+# Sign a message with a given key
+# sign [key] [msg]
+sign () {
+    /usr/bin/printf "${2}" | /usr/bin/openssl dgst -binary -hex -sha256 -mac HMAC -macopt hexkey:"${1}" | /bin/sed 's/.* //'
+}
+
+# Derive a sigv4 signing key for the given secret
+# get_sigv4_key [key] [datestamp] [region name] [service name]
+getsigv4key () {
+    base="$(/bin/echo -n "AWS4${1}" | /usr/bin/od -A n -t x1 | /bin/sed ':a;N;$!ba;s/[\n ]//g')"
+    kdate="$(sign "${base}" "${2}")"
+    kregion="$(sign "${kdate}" "${3}")"
+    kservice="$(sign "${kregion}" "${4}")"
+    sign "${kservice}" "aws4_request"
+}
+
+# Verify that we have instance identity credentials.  Fast-exit if we do not.
+creds_status="$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" -o /dev/null -I -w %{http_code} "http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/")"
+if [ "${creds_status}" != "200" ]
+then
+    # No keys for this user.   Nothing to do.
+    exit 0
+fi
+
+#Iterates overs /etc/ssh to get the host keys
+for file in /etc/ssh/*.pub; do
+	/usr/bin/test -r "${file}" || continue
+	key=$(/usr/bin/awk '{$1=$1};1' < "${file}")
+	keys="${keys:+${keys},}\"${key}\""
+done
+
+#Temporary path to store request parameters
+userpath=$(/bin/mktemp -d /dev/shm/eic-hostkey-XXXXXXXX)
+trap 'rm -rf "${userpath}"' EXIT
+
+#Get zone information
+zone=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/placement/availability-zone/")
+zone_exit="${?}"
+if [ "${zone_exit}" -ne 0 ]
+then
+    exit "${zone_exit}"
+fi
+
+# Validate the zone
+/bin/echo "${zone}" | /usr/bin/head -n 1 | /bin/grep -Eq "^([a-z]+-){2,3}[0-9][a-z]$" || exit 255
+
+# Get domain for calls
+domain=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/services/domain/")
+domain_exit="${?}"
+if [ "${domain_exit}" -ne 0 ]
+then
+    exit "${domain_exit}"
+fi
+
+#Extract region from zone
+region=$(/bin/echo "${zone}" | /bin/sed -n 's/\(\([a-z]\+-\)\+[0-9]\+\).*/\1/p')
+
+hostkeys=$(/bin/echo "${keys:?}")
+
+accountId=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/dynamic/instance-identity/document" | /bin/grep -oP '(?<="accountId" : ")[^"]*(?=")')
+/bin/echo "${accountId}" | /usr/bin/head -n 1 | /bin/grep -Eq "^[0-9]{12}$" || exit 255
+val='{"AccountID":"'${accountId}'","AvailabilityZone":"'${zone}'","HostKeys":['${hostkeys}'],"InstanceId":"'${instance}'"}'
+
+# Pull the creds we need for the call
+creds=$(/usr/bin/curl -s -f -m 1 -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance/")
+creds_exit="${?}"
+if [ "${creds_exit}" -ne 0 ] ; then
+    # We failed to load instance-identity credentials
+    exit "${creds_exit}"
+fi
+AWS_ACCESS_KEY_ID=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"AccessKeyId" : "\(.*\)",/\1/p')
+AWS_SECRET_ACCESS_KEY=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"SecretAccessKey" : "\(.*\)",/\1/p')
+AWS_SESSION_TOKEN=$(/bin/echo "${creds}" | /bin/sed -n 's/.*"Token" : "\(.*\)",/\1/p')
+unset creds
+
+clearcreds () {
+    unset AWS_SESSION_TOKEN
+    unset AWS_SECRET_ACCESS_KEY
+    unset AWS_ACCESS_KEY_ID
+}
+trap clearcreds EXIT
+
+# Generate, sign, and send the sigv4 request
+host="ec2-instance-connect.${region}.${domain}"
+endpoint="https://${host}"
+
+timestamp=$(/bin/date -u "+%Y-%m-%d %H:%M:%S")
+isoTimestamp=$(/bin/date -ud "${timestamp}" "+%Y%m%dT%H%M%SZ")
+isoDate=$(/bin/date -ud "${timestamp}" "+%Y%m%d")
+
+canonicalQuery="" # We are using POST data, not a querystring
+canonicalHeaders="host:${host}\nx-amz-date:${isoTimestamp}\nx-amz-security-token:${AWS_SESSION_TOKEN}\n"
+signedHeaders="host;x-amz-date;x-amz-security-token"
+
+payloadHash=$(/bin/echo -n "${val}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//')
+
+canonicalRequest="$(/usr/bin/printf "POST\n/PutEC2HostKeys/\n%s\n${canonicalHeaders}\n${signedHeaders}\n%s" "${canonicalQuery}" "${payloadHash}")"
+requestHash=$(/bin/echo -n "${canonicalRequest}" | /usr/bin/sha256sum | /bin/sed 's/\s.*$//')
+
+# Derive the signature
+credentialScope="${isoDate}/${region}/ec2-instance-connect/aws4_request"
+toSign="AWS4-HMAC-SHA256\n${isoTimestamp}\n${credentialScope}\n${requestHash}"
+signingKey=$(getsigv4key "${AWS_SECRET_ACCESS_KEY}" "${isoDate}" "${region}" "ec2-instance-connect")
+signature=$(sign "${signingKey}" "${toSign}")
+
+authorizationHeader="AWS4-HMAC-SHA256 Credential=${AWS_ACCESS_KEY_ID}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}"
+
+# Attempt to publish host keys
+# 5 second timeout helps avoid choking launches in private subnets (see https://github.com/aws/aws-ec2-instance-connect-config/issues/8)
+/usr/bin/curl -sS -m 5 -X POST -H "Content-Encoding: amz-1.0" -H "Authorization: ${authorizationHeader}" -H "Content-Type: application/json" -H "x-amz-content-sha256: ${payloadHash}" -H "x-amz-date: ${isoTimestamp}" -H "x-amz-security-token: ${AWS_SESSION_TOKEN}" -H "x-amz-target: com.amazon.aws.sshaccessproxyservice.AWSEC2InstanceConnectService.PutEC2HostKeys" -d "${val}" "${endpoint}/PutEC2HostKeys/"
+
+unset AWS_SESSION_TOKEN
+unset AWS_SECRET_ACCESS_KEY
+unset AWS_ACCESS_KEY_ID

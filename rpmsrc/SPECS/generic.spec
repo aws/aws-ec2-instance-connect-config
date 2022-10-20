@@ -59,6 +59,10 @@ Requires(postun): /usr/sbin/userdel, systemd, systemd-units
 # Create/configure system user
 /usr/bin/getent passwd ec2-instance-connect || /usr/sbin/useradd -r -M -s /sbin/nologin ec2-instance-connect
 /usr/sbin/usermod -L ec2-instance-connect
+# Setup selinux policy to allow eic_curl_authorized_keys perform http connection
+if [ -x /usr/sbin/selinuxenabled -a -x /usr/sbin/setsebool ] ; then
+    /usr/sbin/selinuxenabled && /usr/sbin/setsebool -P authlogin_yubikey on
+fi
 
 %post
 
@@ -130,6 +134,10 @@ fi
 if [ $1 -eq 0 ] ; then
     # Delete system user
     /usr/sbin/userdel ec2-instance-connect
+    # Restore the default selinux settings
+    if [ -x /usr/sbin/selinuxenabled -a -x /usr/sbin/setsebool ] ; then
+        /usr/sbin/selinuxenabled && /usr/sbin/setsebool -P authlogin_yubikey off
+    fi
 fi
 
 
